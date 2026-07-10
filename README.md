@@ -47,10 +47,20 @@ You (Telegram/Discord/WhatsApp)
 
 ### Requirements
 
-- [Bun](https://bun.sh) 1.x
+- [Bun](https://bun.sh) 1.x (dependency install and build only — see [Runtime](#runtime) below)
+- [Node.js](https://nodejs.org) >=22 (runs the built gateway)
 - A Postgres database (Railway can provision one for you)
 - A Railway account with [Sandboxes](https://docs.railway.com/guides/agents-in-sandboxes) enabled
 - A Telegram bot token from [@BotFather](https://t.me/BotFather)
+
+### Runtime
+
+Glasses uses Bun for dependency management and bundling (`bun install`,
+`bun run build`), but the gateway itself runs on **Node.js** in production —
+matching the rest of the [wgtechlabs](https://github.com/wgtechlabs) bot
+fleet (e.g. [devin-discord-bot](https://github.com/wgtechlabs/devin-discord-bot)).
+The Docker image installs Bun only in a build stage; the final runtime
+image is plain Node.js Alpine with no Bun present.
 
 ### Local development
 
@@ -96,9 +106,10 @@ the pieces fit together.
 ```bash
 bun test         # run tests
 bun run typecheck # type-check without emitting
-bun run build     # compile to dist/
+bun run lint      # check formatting/lint with biome
+bun run build     # bundle to dist/ (target: node)
 ```
 
 ## License
 
-MIT
+GPL-3.0-or-later
