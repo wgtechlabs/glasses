@@ -6,6 +6,7 @@ import type { Config, Conversation, Job } from "./types";
 
 export interface ChatNotifier {
 	send(chatId: string, text: string): Promise<void>;
+	startTyping?(chatId: string): () => void;
 }
 
 export function selectEligibleWorkerJobs(pending: Job[], running: Job[]): Job[] {
@@ -139,6 +140,7 @@ export class Scheduler {
 		conversation: Conversation,
 		recovered: boolean,
 	): Promise<void> {
+		const stopTyping = this.notifier.startTyping?.(conversation.chatId);
 		try {
 			let sandboxId: string;
 			let result: RunnerResult;
@@ -179,6 +181,8 @@ export class Scheduler {
 					? "The previously running main job could not be reattached and was marked failed."
 					: "The main session failed. The failure was recorded; send another message to retry safely.",
 			);
+		} finally {
+			stopTyping?.();
 		}
 	}
 
@@ -188,6 +192,7 @@ export class Scheduler {
 		recovered: boolean,
 	): Promise<void> {
 		let sandboxId = job.sandboxId;
+		const stopTyping = this.notifier.startTyping?.(conversation.chatId);
 		try {
 			if (!job.repository) throw new Error("Worker repository is missing.");
 			let result: RunnerResult;
@@ -234,6 +239,7 @@ export class Scheduler {
 				error: this.safeError(error),
 			});
 		} finally {
+			stopTyping?.();
 			if (sandboxId) await this.sandbox.destroy(sandboxId);
 		}
 	}

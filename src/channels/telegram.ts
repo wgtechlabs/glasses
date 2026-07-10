@@ -65,6 +65,13 @@ export class TelegramMessenger implements TelegramSender, ChatNotifier {
 		return actual.length === expected.length && timingSafeEqual(actual, expected);
 	}
 
+	startTyping(chatId: string): () => void {
+		void this.sendChatAction(chatId);
+		const interval = setInterval(() => void this.sendChatAction(chatId), 4000);
+		interval.unref();
+		return () => clearInterval(interval);
+	}
+
 	async send(chatId: string, text: string): Promise<void> {
 		const parts = splitTelegramMessage(text || "(no output)");
 		for (const part of parts) {
@@ -82,6 +89,23 @@ export class TelegramMessenger implements TelegramSender, ChatNotifier {
 					reason: error instanceof Error ? error.name : "unknown",
 				});
 			}
+		}
+	}
+
+	private async sendChatAction(chatId: string): Promise<void> {
+		try {
+			const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendChatAction`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ chat_id: chatId, action: "typing" }),
+			});
+			if (!response.ok) {
+				logger.warn("Telegram sendChatAction failed", { status: response.status });
+			}
+		} catch (error) {
+			logger.warn("Telegram sendChatAction threw", {
+				reason: error instanceof Error ? error.name : "unknown",
+			});
 		}
 	}
 }

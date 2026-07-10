@@ -29,4 +29,27 @@ describe("TelegramMessenger", () => {
 			globalThis.fetch = originalFetch;
 		}
 	});
+
+	it("keeps Telegram's typing indicator active while work runs", async () => {
+		const originalFetch = globalThis.fetch;
+		const fetchMock = mock(async () => new Response(null, { status: 200 }));
+		globalThis.fetch = fetchMock as typeof fetch;
+
+		try {
+			const messenger = new TelegramMessenger("bot_token");
+			const stopTyping = messenger.startTyping("123");
+			await new Promise<void>((resolve) => setImmediate(resolve));
+			stopTyping();
+
+			expect(fetchMock.mock.calls[0]?.[0]).toBe(
+				"https://api.telegram.org/botbot_token/sendChatAction",
+			);
+			expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+				chat_id: "123",
+				action: "typing",
+			});
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
 });
