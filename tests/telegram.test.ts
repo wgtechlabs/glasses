@@ -39,7 +39,7 @@ function setup(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Telegram control chat", () => {
-	it("auto-creates/enqueues the first plain message", async () => {
+	it("auto-creates/enqueues the first plain message without a harness reply", async () => {
 		const { channel, db, scheduler, sent } = setup();
 		await channel.handleWebhook(payload("Please fix wgtechlabs/glasses"));
 		expect(db.enqueueTelegramTurn).toHaveBeenCalledWith({
@@ -49,7 +49,7 @@ describe("Telegram control chat", () => {
 			prompt: "Please fix wgtechlabs/glasses",
 		});
 		expect(scheduler.kick).toHaveBeenCalled();
-		expect(sent[0]).toContain("Accepted");
+		expect(sent).toEqual([]);
 	});
 
 	it("keeps /new as a compatibility message", async () => {

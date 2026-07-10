@@ -1,6 +1,6 @@
 import type { Database } from "./db";
 import { logger } from "./logger";
-import type { RunnerEvent, RunnerInput, RunnerResult } from "./runner-protocol";
+import type { RunnerInput, RunnerResult } from "./runner-protocol";
 import type { SandboxManager } from "./sandbox";
 import type { Config, Conversation, Job } from "./types";
 
@@ -140,10 +140,6 @@ export class Scheduler {
 		recovered: boolean,
 	): Promise<void> {
 		try {
-			await this.notifier.send(
-				conversation.chatId,
-				recovered ? "Reattaching to the running main session…" : "Starting the main session…",
-			);
 			let sandboxId: string;
 			let result: RunnerResult;
 			if (recovered) {
@@ -155,7 +151,6 @@ export class Scheduler {
 					sandboxId,
 					job.execSessionName,
 					this.config.jobTimeoutSeconds,
-					{ onEvent: (event) => this.mainEvent(conversation, event) },
 				);
 			} else {
 				const runtime = await this.ensureMainSandbox(conversation);
@@ -164,7 +159,6 @@ export class Scheduler {
 				const input = await this.mainInput(job, conversation, runtime.recreated, runtime.sessionId);
 				result = await this.sandbox.runRunner(sandboxId, input, this.config.jobTimeoutSeconds, {
 					onExecSession: (name) => this.db.setJobExecSession(job.id, name),
-					onEvent: (event) => this.mainEvent(conversation, event),
 				});
 			}
 			if (!result.ok) throw new Error(result.error ?? "Main runner failed.");
@@ -176,12 +170,6 @@ export class Scheduler {
 				delegations: result.delegations,
 			});
 			await this.notifier.send(conversation.chatId, result.output);
-			for (const delegation of result.delegations) {
-				await this.notifier.send(
-					conversation.chatId,
-					`Queued worker for ${delegation.repository}.`,
-				);
-			}
 		} catch (error) {
 			const message = this.safeError(error);
 			await this.db.failJob(job.id, message);
@@ -202,12 +190,6 @@ export class Scheduler {
 		let sandboxId = job.sandboxId;
 		try {
 			if (!job.repository) throw new Error("Worker repository is missing.");
-			await this.notifier.send(
-				conversation.chatId,
-				recovered
-					? `Reattaching to the running worker for ${job.repository}…`
-					: `Starting worker for ${job.repository}…`,
-			);
 			let result: RunnerResult;
 			if (recovered) {
 				if (!sandboxId || !job.execSessionName) {
@@ -217,7 +199,6 @@ export class Scheduler {
 					sandboxId,
 					job.execSessionName,
 					this.config.jobTimeoutSeconds,
-					{ onEvent: this.workerEventReporter(conversation, job) },
 				);
 			} else {
 				sandboxId = await this.sandbox.createWorker(this.config.copilotGithubToken);
@@ -236,7 +217,6 @@ export class Scheduler {
 				};
 				result = await this.sandbox.runRunner(sandboxId, input, this.config.jobTimeoutSeconds, {
 					onExecSession: (name) => this.db.setJobExecSession(job.id, name),
-					onEvent: this.workerEventReporter(conversation, job),
 				});
 			}
 			if (!result.ok) throw new Error(result.error ?? "Worker runner failed.");
@@ -246,10 +226,6 @@ export class Scheduler {
 				result: result.output,
 				error: null,
 			});
-			await this.notifier.send(
-				conversation.chatId,
-				`Worker completed for ${job.repository}; preparing the main-session update.`,
-			);
 		} catch (error) {
 			await this.db.finishWorkerAndEnqueueResult({
 				job,
@@ -257,10 +233,6 @@ export class Scheduler {
 				result: null,
 				error: this.safeError(error),
 			});
-			await this.notifier.send(
-				conversation.chatId,
-				`Worker failed for ${job.repository ?? "the repository"}; the main session will report it.`,
-			);
 		} finally {
 			if (sandboxId) await this.sandbox.destroy(sandboxId);
 		}
@@ -292,34 +264,6 @@ export class Scheduler {
 				conversation.id,
 				this.config.memoryWorkerLimit,
 			),
-		};
-	}
-
-	private async mainEvent(conversation: Conversation, event: RunnerEvent): Promise<void> {
-		if (event.type === "lifecycle" && event.stage === "running") {
-			await this.notifier.send(conversation.chatId, "Main session is running…");
-		}
-	}
-
-	private workerEventReporter(
-		conversation: Conversation,
-		job: Job,
-	): (event: RunnerEvent) => Promise<void> {
-		const reportedTools = new Set<string>();
-		return async (event) => {
-			if (event.type === "lifecycle" && event.stage === "cloning") {
-				await this.notifier.send(conversation.chatId, `Cloning ${job.repository}…`);
-			} else if (event.type === "lifecycle" && event.stage === "running") {
-				await this.notifier.send(conversation.chatId, `Worker is running for ${job.repository}…`);
-			} else if (
-				event.type === "tool" &&
-				event.stage === "started" &&
-				reportedTools.size < 8 &&
-				!reportedTools.has(event.name)
-			) {
-				reportedTools.add(event.name);
-				await this.notifier.send(conversation.chatId, `Worker tool: ${event.name}`);
-			}
 		};
 	}
 

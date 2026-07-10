@@ -50,8 +50,8 @@ concurrently. Worker sandboxes are explicitly destroyed in `finally`.
 
 Worker completion is stored transactionally with a synthetic `worker_result`
 main turn. That serialized main turn produces the coherent Telegram response.
-Telegram receives lifecycle and bounded distinct tool milestones, not model
-token streams.
+Sandbox lifecycle and tool events remain internal gateway diagnostics; Telegram
+receives only completed main-session replies, not model token streams.
 
 ## Durability and restarts
 

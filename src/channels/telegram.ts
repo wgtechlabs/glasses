@@ -144,7 +144,6 @@ export class TelegramChannel implements ChannelLike {
 			prompt: text,
 		});
 		if (!queued.job) return;
-		void this.sender.send(chatId, "Accepted. Your request is queued.");
 		this.scheduler.kick();
 	}
 
