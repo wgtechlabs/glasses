@@ -23,9 +23,13 @@ describe("TelegramChannel", () => {
 
 			expect(fetchMock).toHaveBeenCalledTimes(1);
 			expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.telegram.org/botbot_token/setWebhook");
-			expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+			const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+			expect(body).toEqual({
 				url: "https://glasses-production.up.railway.app/webhook/telegram",
+				secret_token: expect.stringMatching(/^[a-f0-9]{64}$/),
 			});
+			expect(telegram.isValidWebhookSecret(body.secret_token)).toBe(true);
+			expect(telegram.isValidWebhookSecret("wrong")).toBe(false);
 		} finally {
 			globalThis.fetch = originalFetch;
 		}

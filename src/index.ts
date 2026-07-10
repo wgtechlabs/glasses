@@ -45,6 +45,14 @@ async function main(): Promise<void> {
 		const url = new URL(req.url ?? "/", `http://localhost:${config.port}`);
 
 		if (req.method === "POST" && url.pathname === "/webhook/telegram") {
+			const secret = req.headers["x-telegram-bot-api-secret-token"];
+			if (typeof secret !== "string" || !telegram.isValidWebhookSecret(secret)) {
+				logger.warn("Rejected Telegram webhook with invalid secret");
+				res.writeHead(401, { "Content-Type": "application/json" });
+				res.end(JSON.stringify({ ok: false }));
+				return;
+			}
+
 			try {
 				const payload = await readJsonBody(req);
 				await telegram.handleWebhook(payload);
@@ -71,7 +79,11 @@ async function main(): Promise<void> {
 	server.listen(config.port);
 	await once(server, "listening");
 	logger.info(`Gateway listening on port ${config.port}`);
-	await telegram.registerWebhook(process.env.RAILWAY_PUBLIC_DOMAIN);
+	try {
+		await telegram.registerWebhook(process.env.RAILWAY_PUBLIC_DOMAIN);
+	} catch (error) {
+		logger.error("Telegram webhook registration failed", error);
+	}
 }
 
 main().catch((error) => {

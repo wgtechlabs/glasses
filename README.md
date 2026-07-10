@@ -78,6 +78,7 @@ See [`.env.example`](./.env.example) for the full list:
 |---|---|
 | `RAILWAY_API_TOKEN` | Railway API token with Sandbox access |
 | `RAILWAY_ENVIRONMENT_ID` | Environment sandboxes are created in (provided automatically on Railway) |
+| `RAILWAY_PUBLIC_DOMAIN` | Public domain used to register the Telegram webhook (provided automatically on Railway) |
 | `DATABASE_URL` | Postgres connection string |
 | `TELEGRAM_BOT_TOKEN` | Bot token from @BotFather |
 | `TELEGRAM_ALLOWED_USER_ID` | Only this Telegram user id can talk to the bot |
