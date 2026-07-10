@@ -15,10 +15,11 @@ Telegram -> gateway -> Postgres jobs -> Railway main sandbox
 ```
 
 Both sandbox types receive `dist/runner.js`, a JSON input file, and the packaged
-Linux Copilot CLI through `sandbox.files.write`; workers also receive the
-packaged GitHub CLI. Prompts and tasks are never interpolated into shell
-commands. The runner uses `@github/copilot-sdk` without a `model` option,
-preserving the authenticated CLI's default provider/model.
+Linux Copilot CLI through `sandbox.files.write`. Worker clones use the sandbox's
+Git binary with authentication passed through process environment configuration.
+Prompts and tasks are never interpolated into shell commands. The runner uses
+`@github/copilot-sdk` without a `model` option, preserving the authenticated
+CLI's default provider/model.
 
 ## Main sessions
 
@@ -42,9 +43,9 @@ resumed while the same sandbox remains available.
 ## Workers and concurrency
 
 Each delegation is a durable `worker` job and receives a fresh sandbox. The
-runner uses argument-array process spawning to execute authenticated
-`gh repo clone owner/repo`, then runs a Copilot SDK session in that repository.
-Repository-local Copilot instruction discovery remains enabled.
+runner uses argument-array process spawning to execute an authenticated, shallow
+`git clone`, then runs a Copilot SDK session in that repository. Repository-local
+Copilot instruction discovery remains enabled.
 
 A partial unique index and claim query permit one running worker per
 `(conversation, repository)`. Different repositories may be claimed

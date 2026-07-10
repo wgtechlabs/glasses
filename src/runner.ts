@@ -92,9 +92,12 @@ function findCopilotCli(): string {
 	throw new Error("Copilot CLI is not installed in the Railway sandbox.");
 }
 
-function runProcess(command: string, args: string[]): Promise<void> {
+function runProcess(command: string, args: string[], env?: NodeJS.ProcessEnv): Promise<void> {
 	return new Promise((resolve, reject) => {
-		const child = spawn(command, args, { stdio: ["ignore", "ignore", "pipe"] });
+		const child = spawn(command, args, {
+			env: env ? { ...process.env, ...env } : process.env,
+			stdio: ["ignore", "ignore", "pipe"],
+		});
 		let stderr = "";
 		child.stderr.on("data", (chunk: Buffer) => {
 			if (stderr.length < 4000) stderr += chunk.toString("utf8");
@@ -110,12 +113,18 @@ function runProcess(command: string, args: string[]): Promise<void> {
 
 async function cloneRepository(repository: string): Promise<string> {
 	const path = repositoryPath(repository);
-	const ghCli = process.env.GLASSES_GH_CLI_PATH ?? "gh";
+	const gitHubToken = process.env.GH_TOKEN ?? process.env.COPILOT_GITHUB_TOKEN;
+	if (!gitHubToken) throw new Error("GitHub token is unavailable.");
 	await mkdir("/workspace", { recursive: true });
 	emit({ type: "lifecycle", stage: "cloning" });
-	emit({ type: "tool", stage: "started", name: "gh_repo_clone" });
-	await runProcess(ghCli, ["repo", "clone", repository, path, "--", "--depth=1"]);
-	emit({ type: "tool", stage: "completed", name: "gh_repo_clone" });
+	emit({ type: "tool", stage: "started", name: "git_clone" });
+	await runProcess("git", ["clone", "--depth=1", `https://github.com/${repository}.git`, path], {
+		GIT_CONFIG_COUNT: "1",
+		GIT_CONFIG_KEY_0: "http.https://github.com/.extraHeader",
+		GIT_CONFIG_VALUE_0: `Authorization: Basic ${Buffer.from(`x-access-token:${gitHubToken}`).toString("base64")}`,
+		GIT_TERMINAL_PROMPT: "0",
+	});
+	emit({ type: "tool", stage: "completed", name: "git_clone" });
 	return path;
 }
 

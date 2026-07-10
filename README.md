@@ -97,7 +97,7 @@ See [`.env.example`](./.env.example) for the full list:
 | `MEMORY_WORKER_LIMIT` | Recent worker summaries restored after sandbox loss |
 
 `COPILOT_GITHUB_TOKEN` is injected into the isolated sandbox environment for
-Copilot and authenticated `gh repo clone` (including private repositories). It
+Copilot and authenticated Git operations (including private repositories). It
 is never placed in prompts or command strings.
 
 > Railway Sandboxes and `@github/copilot-sdk` are preview/beta APIs. Pin and

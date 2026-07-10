@@ -48,7 +48,6 @@ export class SandboxManager {
 				GH_TOKEN: authToken,
 				COPILOT_AUTO_UPDATE: "false",
 				COPILOT_CLI_PATH: "/glasses/copilot-cli",
-				GLASSES_GH_CLI_PATH: "/glasses/gh",
 			},
 		});
 		logger.info("Sandbox created", { sandboxId: sandbox.id });
@@ -84,14 +83,6 @@ export class SandboxManager {
 			const copilotCli = this.findCopilotBinary();
 			writes.push(
 				sandbox.files.write("/glasses/copilot-cli", () => createReadStream(copilotCli), {
-					mode: 0o755,
-				}),
-			);
-		}
-		if (input.mode === "worker" && !(await sandbox.files.exists("/glasses/gh"))) {
-			const ghCli = this.findGhBinary();
-			writes.push(
-				sandbox.files.write("/glasses/gh", () => createReadStream(ghCli), {
 					mode: 0o755,
 				}),
 			);
@@ -191,14 +182,5 @@ export class SandboxManager {
 		throw new Error(
 			"Linux Copilot CLI package is unavailable. Set GLASSES_COPILOT_CLI_PATH explicitly.",
 		);
-	}
-
-	private findGhBinary(): string {
-		const configured = process.env.GLASSES_GH_CLI_PATH;
-		if (configured && existsSync(configured)) return configured;
-		for (const candidate of ["/usr/bin/gh", "/usr/local/bin/gh"]) {
-			if (existsSync(candidate)) return candidate;
-		}
-		throw new Error("GitHub CLI is unavailable. Set GLASSES_GH_CLI_PATH explicitly.");
 	}
 }
