@@ -33,6 +33,7 @@ You (Telegram/Discord/WhatsApp)
   CLI locally.
 - `/status` shows which repo/agent/sandbox your current conversation is
   bound to.
+- `/delete` destroys the active sandbox and ends the session.
 
 ## 📊 Status
 

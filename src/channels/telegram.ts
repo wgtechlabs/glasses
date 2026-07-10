@@ -98,6 +98,11 @@ export class TelegramChannel implements ChannelLike {
 			return;
 		}
 
+		if (text === "/delete") {
+			await this.handleDelete(chatId, userId);
+			return;
+		}
+
 		await this.handlePrompt(chatId, userId, text);
 	}
 
@@ -157,7 +162,7 @@ export class TelegramChannel implements ChannelLike {
 	private async handleStatus(chatId: number, userId: string): Promise<void> {
 		const conversation = await this.db.getLatestConversationForUser(userId, "telegram");
 
-		if (!conversation) {
+		if (!conversation?.sandboxId) {
 			await this.sendMessage(
 				chatId,
 				"No active session. Use /new owner/repository [agent] to start one.",
@@ -169,6 +174,29 @@ export class TelegramChannel implements ChannelLike {
 			chatId,
 			`Agent: ${conversation.agent}\nRepository: ${conversation.repository}\nSandbox: ${conversation.sandboxId}\nLast updated: ${conversation.updatedAt.toISOString()}`,
 		);
+	}
+
+	private async handleDelete(chatId: number, userId: string): Promise<void> {
+		const conversation = await this.db.getLatestConversationForUser(userId, "telegram");
+
+		if (!conversation?.sandboxId) {
+			await this.sendMessage(chatId, "No active session to delete.");
+			return;
+		}
+
+		try {
+			await this.sandbox.destroy(conversation.sandboxId);
+			await this.db.saveConversation({
+				...conversation,
+				sandboxId: null,
+				sessionId: null,
+				updatedAt: new Date(),
+			});
+			await this.sendMessage(chatId, "Sandbox session deleted.");
+		} catch (error) {
+			logger.error("Failed to delete sandbox session", error);
+			await this.sendMessage(chatId, "Failed to delete sandbox session. Check gateway logs.");
+		}
 	}
 
 	private async handlePrompt(chatId: number, userId: string, prompt: string): Promise<void> {
