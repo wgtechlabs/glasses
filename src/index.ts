@@ -6,6 +6,8 @@ import { logger, setLogLevel } from "./logger";
 import { SandboxManager } from "./sandbox";
 import { Scheduler } from "./scheduler";
 
+class RequestPayloadError extends Error {}
+
 function readJsonBody(req: IncomingMessage): Promise<unknown> {
 	return new Promise((resolve, reject) => {
 		let body = "";
@@ -13,18 +15,18 @@ function readJsonBody(req: IncomingMessage): Promise<unknown> {
 		req.on("data", (chunk: string) => {
 			body += chunk;
 			if (body.length > 1_000_000) {
-				reject(new Error("Request body too large."));
+				reject(new RequestPayloadError("Request body too large."));
 				req.destroy();
 			}
 		});
 		req.on("end", () => {
 			try {
 				resolve(body ? (JSON.parse(body) as unknown) : {});
-			} catch (error) {
-				reject(error);
+			} catch {
+				reject(new RequestPayloadError("Request body is not valid JSON."));
 			}
 		});
-		req.on("error", reject);
+		req.on("error", (error) => reject(new RequestPayloadError(error.message)));
 	});
 }
 
@@ -44,6 +46,14 @@ async function main(): Promise<void> {
 	const server = createServer(async (req, res) => {
 		const url = new URL(req.url ?? "/", `http://localhost:${config.port}`);
 		if (req.method === "POST" && url.pathname === "/webhook/telegram") {
+			const secret = req.headers["x-telegram-bot-api-secret-token"];
+			if (typeof secret !== "string" || !messenger.isValidWebhookSecret(secret)) {
+				logger.warn("Rejected Telegram webhook with invalid secret");
+				res.writeHead(401, { "Content-Type": "application/json" });
+				res.end('{"ok":false}');
+				return;
+			}
+
 			try {
 				const payload = await readJsonBody(req);
 				await telegram.handleWebhook(payload);
@@ -53,7 +63,9 @@ async function main(): Promise<void> {
 				logger.error("Telegram webhook intake failed", {
 					reason: error instanceof Error ? error.name : "unknown",
 				});
-				res.writeHead(400, { "Content-Type": "application/json" });
+				res.writeHead(error instanceof RequestPayloadError ? 400 : 500, {
+					"Content-Type": "application/json",
+				});
 				res.end('{"ok":false}');
 			}
 			return;
@@ -67,8 +79,15 @@ async function main(): Promise<void> {
 		res.end("Not found");
 	});
 
-	server.listen(config.port, () => {
+	server.listen(config.port, async () => {
 		logger.info(`Gateway listening on port ${config.port}`);
+		try {
+			await messenger.registerWebhook(process.env.RAILWAY_PUBLIC_DOMAIN);
+		} catch (error) {
+			logger.error("Telegram webhook registration failed", {
+				reason: error instanceof Error ? error.name : "unknown",
+			});
+		}
 	});
 
 	const shutdown = (): void => {

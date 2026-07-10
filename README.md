@@ -61,7 +61,7 @@ You (Telegram/Discord/WhatsApp)
 Glasses runs on **Node.js**. Bun is the toolchain for dependency management,
 development, and bundling (`bun install`, `bun run dev`, and `bun run build`).
 The Docker image uses Bun only while building; the final runtime image is
-plain Node.js Alpine with no Bun present.
+plain Node.js with no Bun present.
 
 ### 💻 Local development
 
@@ -82,7 +82,8 @@ See [`.env.example`](./.env.example) for the full list:
 | Variable | Description |
 |---|---|
 | `RAILWAY_API_TOKEN` | Railway API token with Sandbox access |
-| `RAILWAY_ENVIRONMENT_ID` | Environment sandboxes are created in |
+| `RAILWAY_ENVIRONMENT_ID` | Environment sandboxes are created in (provided automatically on Railway) |
+| `RAILWAY_PUBLIC_DOMAIN` | Public domain used to register the Telegram webhook (provided automatically on Railway) |
 | `MAIN_SANDBOX_IDLE_MINUTES` | Railway auto-destroy timeout for inactive main sandboxes |
 | `JOB_TIMEOUT_SECONDS` | Sandbox runner timeout |
 | `SCHEDULER_POLL_MS` | Durable scheduler polling interval |
@@ -110,7 +111,7 @@ is never placed in prompts or command strings.
    `Dockerfile` configure the build automatically.
 3. Attach a Postgres plugin and set `DATABASE_URL` from it.
 4. Set the remaining environment variables in the Railway dashboard.
-4. Set your Telegram webhook to `https://<your-railway-domain>/webhook/telegram`.
+5. The service automatically registers its Telegram webhook using its Railway domain.
 
 See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for more detail on how
 the pieces fit together.

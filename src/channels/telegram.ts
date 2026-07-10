@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import type { Database } from "../db";
 import { logger } from "../logger";
 import type { ChatNotifier, Scheduler } from "../scheduler";
@@ -17,7 +18,52 @@ export interface TelegramSender {
 }
 
 export class TelegramMessenger implements TelegramSender, ChatNotifier {
-	constructor(private botToken: string) {}
+	private readonly webhookSecret: string;
+
+	constructor(private botToken: string) {
+		this.webhookSecret = createHash("sha256")
+			.update(`glasses-telegram-webhook:${botToken}`)
+			.digest("hex");
+	}
+
+	async registerWebhook(publicDomain?: string): Promise<void> {
+		if (!publicDomain) return;
+
+		const response = await fetch(`https://api.telegram.org/bot${this.botToken}/setWebhook`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				url: `https://${publicDomain}/webhook/telegram`,
+				secret_token: this.webhookSecret,
+			}),
+		});
+		if (!response.ok) {
+			throw new Error(`Telegram setWebhook failed with status ${response.status}.`);
+		}
+
+		const commandsResponse = await fetch(
+			`https://api.telegram.org/bot${this.botToken}/setMyCommands`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					commands: [
+						{ command: "status", description: "Show main session and queued work" },
+						{ command: "instructions", description: "Show or update global instructions" },
+					],
+				}),
+			},
+		);
+		if (!commandsResponse.ok) {
+			throw new Error(`Telegram setMyCommands failed with status ${commandsResponse.status}.`);
+		}
+	}
+
+	isValidWebhookSecret(secret: string): boolean {
+		const actual = Buffer.from(secret);
+		const expected = Buffer.from(this.webhookSecret);
+		return actual.length === expected.length && timingSafeEqual(actual, expected);
+	}
 
 	async send(chatId: string, text: string): Promise<void> {
 		const parts = splitTelegramMessage(text || "(no output)");

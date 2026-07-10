@@ -159,11 +159,19 @@ export class SandboxManager {
 
 	private async readResult(sandbox: Sandbox): Promise<RunnerResult> {
 		const raw = await sandbox.files.read("/glasses/result.json");
-		return parseRunnerResult(raw);
+		return parseRunnerResult(Buffer.from(raw).toString("utf8"));
 	}
 
 	private dispatchEvents(events: RunnerEvent[], callbacks: RunnerCallbacks): void {
-		for (const event of events) void callbacks.onEvent?.(event);
+		for (const event of events) {
+			void Promise.resolve()
+				.then(() => callbacks.onEvent?.(event))
+				.catch((error) => {
+					logger.warn("Runner event callback failed", {
+						reason: error instanceof Error ? error.name : "unknown",
+					});
+				});
+		}
 	}
 
 	private findCopilotBinary(): string {
