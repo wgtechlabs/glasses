@@ -136,7 +136,7 @@ function sessionConfig(
 			content: global ? `${base}\n\nUser instructions:\n${global}` : base,
 		},
 		onPermissionRequest: approveAll,
-		streaming: false,
+		streaming: true,
 		enableConfigDiscovery: input.mode === "worker",
 		skipCustomInstructions: input.mode !== "worker",
 	};
@@ -194,6 +194,8 @@ function attachEvents(session: CopilotSession): void {
 		} else if (event.type === "tool.execution_complete") {
 			const name = toolNames.get(event.data.toolCallId) ?? "tool";
 			emit({ type: "tool", stage: "completed", name });
+		} else if (event.type === "assistant.message_delta" && event.data.deltaContent) {
+			emit({ type: "text_delta", content: event.data.deltaContent });
 		}
 	});
 }

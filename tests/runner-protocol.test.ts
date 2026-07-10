@@ -6,10 +6,13 @@ describe("runner protocol", () => {
 		const parser = new JsonLineParser();
 		expect(parser.push('{"type":"lifecycle","stage":"run')).toEqual([]);
 		expect(
-			parser.push('ning"}\nnot-json\n{"type":"tool","stage":"started","name":"edit"}\n'),
+			parser.push(
+				'ning"}\nnot-json\n{"type":"tool","stage":"started","name":"edit"}\n{"type":"text_delta","content":"Hi"}\n',
+			),
 		).toEqual([
 			{ type: "lifecycle", stage: "running" },
 			{ type: "tool", stage: "started", name: "edit" },
+			{ type: "text_delta", content: "Hi" },
 		]);
 	});
 

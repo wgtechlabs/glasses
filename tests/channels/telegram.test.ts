@@ -30,24 +30,30 @@ describe("TelegramMessenger", () => {
 		}
 	});
 
-	it("keeps Telegram's typing indicator active while work runs", async () => {
+	it("streams generated text through Telegram drafts", async () => {
 		const originalFetch = globalThis.fetch;
 		const fetchMock = mock(async () => new Response(null, { status: 200 }));
 		globalThis.fetch = fetchMock as typeof fetch;
 
 		try {
 			const messenger = new TelegramMessenger("bot_token");
-			const stopTyping = messenger.startTyping("123");
+			const stream = messenger.startStreaming("123");
+			stream.update("Hello");
 			await new Promise<void>((resolve) => setImmediate(resolve));
-			stopTyping();
+			await new Promise((resolve) => setTimeout(resolve, 300));
+			stream.stop();
 
 			expect(fetchMock.mock.calls[0]?.[0]).toBe(
-				"https://api.telegram.org/botbot_token/sendChatAction",
+				"https://api.telegram.org/botbot_token/sendMessageDraft",
 			);
-			expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+			const initial = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+			const update = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+			expect(initial).toEqual({
 				chat_id: "123",
-				action: "typing",
+				draft_id: expect.any(Number),
+				text: "",
 			});
+			expect(update).toEqual({ chat_id: "123", draft_id: initial.draft_id, text: "Hello" });
 		} finally {
 			globalThis.fetch = originalFetch;
 		}

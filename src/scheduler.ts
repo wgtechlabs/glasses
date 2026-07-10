@@ -6,7 +6,7 @@ import type { Config, Conversation, Job } from "./types";
 
 export interface ChatNotifier {
 	send(chatId: string, text: string): Promise<void>;
-	startTyping?(chatId: string): () => void;
+	startStreaming?(chatId: string): { update(delta: string): void; stop(): void };
 }
 
 export function selectEligibleWorkerJobs(pending: Job[], running: Job[]): Job[] {
@@ -140,7 +140,7 @@ export class Scheduler {
 		conversation: Conversation,
 		recovered: boolean,
 	): Promise<void> {
-		const stopTyping = this.notifier.startTyping?.(conversation.chatId);
+		const stream = this.notifier.startStreaming?.(conversation.chatId);
 		try {
 			let sandboxId: string;
 			let result: RunnerResult;
@@ -153,6 +153,11 @@ export class Scheduler {
 					sandboxId,
 					job.execSessionName,
 					this.config.jobTimeoutSeconds,
+					{
+						onEvent: (event) => {
+							if (event.type === "text_delta") stream?.update(event.content);
+						},
+					},
 				);
 			} else {
 				const runtime = await this.ensureMainSandbox(conversation);
@@ -161,6 +166,9 @@ export class Scheduler {
 				const input = await this.mainInput(job, conversation, runtime.recreated, runtime.sessionId);
 				result = await this.sandbox.runRunner(sandboxId, input, this.config.jobTimeoutSeconds, {
 					onExecSession: (name) => this.db.setJobExecSession(job.id, name),
+					onEvent: (event) => {
+						if (event.type === "text_delta") stream?.update(event.content);
+					},
 				});
 			}
 			if (!result.ok) throw new Error(result.error ?? "Main runner failed.");
@@ -182,7 +190,7 @@ export class Scheduler {
 					: "The main session failed. The failure was recorded; send another message to retry safely.",
 			);
 		} finally {
-			stopTyping?.();
+			stream?.stop();
 		}
 	}
 
@@ -192,7 +200,6 @@ export class Scheduler {
 		recovered: boolean,
 	): Promise<void> {
 		let sandboxId = job.sandboxId;
-		const stopTyping = this.notifier.startTyping?.(conversation.chatId);
 		try {
 			if (!job.repository) throw new Error("Worker repository is missing.");
 			let result: RunnerResult;
@@ -239,7 +246,6 @@ export class Scheduler {
 				error: this.safeError(error),
 			});
 		} finally {
-			stopTyping?.();
 			if (sandboxId) await this.sandbox.destroy(sandboxId);
 		}
 	}

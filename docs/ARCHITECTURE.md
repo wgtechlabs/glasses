@@ -50,9 +50,9 @@ concurrently. Worker sandboxes are explicitly destroyed in `finally`.
 
 Worker completion is stored transactionally with a synthetic `worker_result`
 main turn. That serialized main turn produces the coherent Telegram response.
-Sandbox lifecycle and tool events remain internal gateway diagnostics; Telegram
-receives only completed main-session replies, not model token streams. While
-main or worker work is active, Telegram's native typing indicator stays visible.
+Sandbox lifecycle and tool events remain internal gateway diagnostics. Main
+Copilot SDK text deltas are relayed through Telegram's ephemeral
+`sendMessageDraft` stream, followed by one persistent completed reply.
 
 ## Durability and restarts
 

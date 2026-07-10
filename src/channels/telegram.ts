@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, randomInt, timingSafeEqual } from "node:crypto";
 import type { Database } from "../db";
 import { logger } from "../logger";
 import type { ChatNotifier, Scheduler } from "../scheduler";
@@ -65,11 +65,29 @@ export class TelegramMessenger implements TelegramSender, ChatNotifier {
 		return actual.length === expected.length && timingSafeEqual(actual, expected);
 	}
 
-	startTyping(chatId: string): () => void {
-		void this.sendChatAction(chatId);
-		const interval = setInterval(() => void this.sendChatAction(chatId), 4000);
-		interval.unref();
-		return () => clearInterval(interval);
+	startStreaming(chatId: string): { update(delta: string): void; stop(): void } {
+		const draftId = randomInt(1, 2_147_483_647);
+		let text = "";
+		let timer: NodeJS.Timeout | null = null;
+		void this.sendDraft(chatId, draftId, "");
+
+		const flush = (): void => {
+			timer = null;
+			void this.sendDraft(chatId, draftId, text.slice(-4096));
+		};
+
+		return {
+			update: (delta) => {
+				text += delta;
+				if (!timer) {
+					timer = setTimeout(flush, 250);
+					timer.unref();
+				}
+			},
+			stop: () => {
+				if (timer) clearTimeout(timer);
+			},
+		};
 	}
 
 	async send(chatId: string, text: string): Promise<void> {
@@ -92,18 +110,21 @@ export class TelegramMessenger implements TelegramSender, ChatNotifier {
 		}
 	}
 
-	private async sendChatAction(chatId: string): Promise<void> {
+	private async sendDraft(chatId: string, draftId: number, text: string): Promise<void> {
 		try {
-			const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendChatAction`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ chat_id: chatId, action: "typing" }),
-			});
+			const response = await fetch(
+				`https://api.telegram.org/bot${this.botToken}/sendMessageDraft`,
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ chat_id: chatId, draft_id: draftId, text }),
+				},
+			);
 			if (!response.ok) {
-				logger.warn("Telegram sendChatAction failed", { status: response.status });
+				logger.warn("Telegram sendMessageDraft failed", { status: response.status });
 			}
 		} catch (error) {
-			logger.warn("Telegram sendChatAction threw", {
+			logger.warn("Telegram sendMessageDraft threw", {
 				reason: error instanceof Error ? error.name : "unknown",
 			});
 		}

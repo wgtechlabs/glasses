@@ -40,7 +40,8 @@ export interface RunnerResult {
 
 export type RunnerEvent =
 	| { type: "lifecycle"; stage: "started" | "cloning" | "running" | "completed" | "failed" }
-	| { type: "tool"; stage: "started" | "completed"; name: string };
+	| { type: "tool"; stage: "started" | "completed"; name: string }
+	| { type: "text_delta"; content: string };
 
 export function parseRunnerEvent(line: string): RunnerEvent | null {
 	try {
@@ -57,6 +58,9 @@ export function parseRunnerEvent(line: string): RunnerEvent | null {
 			typeof value.name === "string"
 		) {
 			return value as unknown as RunnerEvent;
+		}
+		if (value.type === "text_delta" && typeof value.content === "string") {
+			return { type: "text_delta", content: value.content };
 		}
 		return null;
 	} catch {
