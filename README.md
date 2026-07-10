@@ -77,7 +77,8 @@ See [`.env.example`](./.env.example) for the full list:
 | Variable | Description |
 |---|---|
 | `RAILWAY_API_TOKEN` | Railway API token with Sandbox access |
-| `RAILWAY_ENVIRONMENT_ID` | Environment sandboxes are created in |
+| `RAILWAY_ENVIRONMENT_ID` | Environment sandboxes are created in (provided automatically on Railway) |
+| `RAILWAY_PUBLIC_DOMAIN` | Public domain used to register the Telegram webhook (provided automatically on Railway) |
 | `DATABASE_URL` | Postgres connection string |
 | `TELEGRAM_BOT_TOKEN` | Bot token from @BotFather |
 | `TELEGRAM_ALLOWED_USER_ID` | Only this Telegram user id can talk to the bot |
@@ -92,7 +93,7 @@ See [`.env.example`](./.env.example) for the full list:
    `Dockerfile` configure the build automatically.
 3. Attach a Postgres plugin and set `DATABASE_URL` from it.
 4. Set the remaining environment variables in the Railway dashboard.
-4. Set your Telegram webhook to `https://<your-railway-domain>/webhook/telegram`.
+5. The service automatically registers its Telegram webhook using its Railway domain.
 
 See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for more detail on how
 the pieces fit together.

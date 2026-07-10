@@ -1,4 +1,4 @@
-import crypto from "node:crypto";
+import crypto, { timingSafeEqual } from "node:crypto";
 import { repositoryPath } from "../agents/paths";
 import type { AgentRegistry } from "../agents/registry";
 import type { Database } from "../db";
@@ -27,6 +27,7 @@ const KNOWN_AGENTS: AgentName[] = ["copilot", "devin"];
  */
 export class TelegramChannel implements ChannelLike {
 	readonly name = "telegram";
+	private readonly webhookSecret: string;
 
 	constructor(
 		private botToken: string,
@@ -34,7 +35,37 @@ export class TelegramChannel implements ChannelLike {
 		private db: Database,
 		private agents: AgentRegistry,
 		private sandbox: SandboxManager,
-	) {}
+	) {
+		this.webhookSecret = crypto
+			.createHash("sha256")
+			.update(`glasses-telegram-webhook:${botToken}`)
+			.digest("hex");
+	}
+
+	async registerWebhook(publicDomain?: string): Promise<void> {
+		if (!publicDomain) return;
+
+		const webhookUrl = `https://${publicDomain}/webhook/telegram`;
+		const response = await fetch(`https://api.telegram.org/bot${this.botToken}/setWebhook`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ url: webhookUrl, secret_token: this.webhookSecret }),
+		});
+
+		if (!response.ok) {
+			throw new Error(
+				`Telegram setWebhook failed with status ${response.status}: ${await response.text()}`,
+			);
+		}
+
+		logger.info("Telegram webhook registered", { webhookUrl });
+	}
+
+	isValidWebhookSecret(secret: string): boolean {
+		const actual = Buffer.from(secret);
+		const expected = Buffer.from(this.webhookSecret);
+		return actual.length === expected.length && timingSafeEqual(actual, expected);
+	}
 
 	async handleWebhook(payload: unknown): Promise<void> {
 		const update = payload as TelegramUpdate;
