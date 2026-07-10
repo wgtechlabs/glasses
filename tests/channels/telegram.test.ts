@@ -72,12 +72,12 @@ describe("TelegramMessenger", () => {
 		try {
 			await new TelegramMessenger("bot_token").send(
 				"123",
-				'# Result\n- **Ready** & <safe>\n- [Docs](https://example.com/?q="x")\n\n```ts\nconst ok = true;\n```',
+				'# Result\n- **Ready** & <safe>\n- [Docs](https://example.com/?q="x")\n\n| State | Count |\n|---|---|\n| Open | 4 |\n| Merged | 77 |\n\n```ts\nconst ok = true;\n```',
 			);
 
 			expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
 				chat_id: "123",
-				text: '<b>Result</b>\n• <b>Ready</b> &amp; &lt;safe&gt;\n• <a href="https://example.com/?q=&quot;x&quot;">Docs</a>\n\n<pre>const ok = true;\n</pre>',
+				text: '<b>Result</b>\n• <b>Ready</b> &amp; &lt;safe&gt;\n• <a href="https://example.com/?q=&quot;x&quot;">Docs</a>\n\n<b>State:</b> Open • <b>Count:</b> 4\n<b>State:</b> Merged • <b>Count:</b> 77\n\n<pre>const ok = true;\n</pre>',
 				parse_mode: "HTML",
 			});
 		} finally {

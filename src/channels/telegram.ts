@@ -13,13 +13,54 @@ interface TelegramUpdate {
 	};
 }
 
+function tableCells(line: string): string[] | null {
+	if (!line.includes("|")) return null;
+	const cells = line
+		.trim()
+		.replace(/^\|/, "")
+		.replace(/\|$/, "")
+		.split("|")
+		.map((cell) => cell.trim());
+	return cells.length > 1 ? cells : null;
+}
+
+function flattenMarkdownTables(markdown: string): string {
+	const lines = markdown.split("\n");
+	const output: string[] = [];
+	for (let index = 0; index < lines.length; ) {
+		const headers = tableCells(lines[index] ?? "");
+		const separator = tableCells(lines[index + 1] ?? "");
+		if (headers && separator?.every((cell) => /^:?-{3,}:?$/.test(cell))) {
+			const rows: string[][] = [];
+			index += 2;
+			for (
+				let cells = tableCells(lines[index] ?? "");
+				cells;
+				cells = tableCells(lines[index] ?? "")
+			) {
+				rows.push(cells);
+				index += 1;
+			}
+			for (const row of rows) {
+				output.push(
+					row.map((cell, cellIndex) => `**${headers[cellIndex] ?? "Value"}:** ${cell}`).join(" • "),
+				);
+			}
+			continue;
+		}
+		output.push(lines[index] ?? "");
+		index += 1;
+	}
+	return output.join("\n");
+}
+
 function telegramHtml(markdown: string): string {
 	const code: string[] = [];
 	const stash = (value: string, tag: "code" | "pre"): string => {
 		const index = code.push(`<${tag}>${escapeHtml(value)}</${tag}>`) - 1;
 		return `\0${index}\0`;
 	};
-	let text = markdown
+	let text = flattenMarkdownTables(markdown)
 		.replace(/```[^\n]*\n?([\s\S]*?)(?:```|$)/g, (_, value: string) => stash(value, "pre"))
 		.replace(/`([^`\n]+)`/g, (_, value: string) => stash(value, "code"));
 
