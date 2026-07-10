@@ -1,7 +1,7 @@
 {
 	"name": "glasses",
 	"version": "0.1.0",
-	"description": "Remote coding agents, anywhere. Chat with Copilot, Devin, and other coding CLIs from Telegram, Discord, or WhatsApp.",
+	"description": "Orchestrate sandboxed GitHub Copilot repository workers from Telegram.",
 	"module": "src/index.ts",
 	"type": "module",
 	"license": "GPL-3.0-or-later",
@@ -14,7 +14,7 @@
 	},
 	"scripts": {
 		"dev": "bun run --watch src/index.ts",
-		"build": "bun build src/index.ts --outdir dist --target node",
+		"build": "bun build src/index.ts src/runner.ts --outdir dist --target node",
 		"start": "node dist/index.js",
 		"lint": "biome check .",
 		"lint:fix": "biome check --write .",
@@ -23,6 +23,7 @@
 		"test": "bun test"
 	},
 	"dependencies": {
+		"@github/copilot-sdk": "1.0.6",
 		"@wgtechlabs/log-engine": "^2.3.1",
 		"dotenv": "^16.4.5",
 		"pg": "^8.22.0",

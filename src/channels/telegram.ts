@@ -1,208 +1,199 @@
-import crypto from "node:crypto";
-import { repositoryPath } from "../agents/paths";
-import type { AgentRegistry } from "../agents/registry";
 import type { Database } from "../db";
 import { logger } from "../logger";
-import type { SandboxManager } from "../sandbox";
-import type { AgentName, Conversation } from "../types";
+import type { ChatNotifier, Scheduler } from "../scheduler";
 import type { ChannelLike } from "./types";
 
 interface TelegramUpdate {
 	message?: {
 		message_id: number;
-		from: { id: number };
-		chat: { id: number };
+		from?: { id: number };
+		chat?: { id: number };
 		text?: string;
 	};
 }
 
-const KNOWN_AGENTS: AgentName[] = ["copilot", "devin"];
+export interface TelegramSender {
+	send(chatId: string, text: string): Promise<void>;
+}
 
-/**
- * Telegram webhook handler. Maps a Telegram chat 1:1 with a conversation:
- * `/new owner/repo [agent]` provisions a sandbox and clones the repo,
- * plain messages are forwarded as prompts to whichever agent that
- * conversation was created with — mirroring how you'd type into the CLI
- * directly, just over chat.
- */
+export class TelegramMessenger implements TelegramSender, ChatNotifier {
+	constructor(private botToken: string) {}
+
+	async send(chatId: string, text: string): Promise<void> {
+		const parts = splitTelegramMessage(text || "(no output)");
+		for (const part of parts) {
+			try {
+				const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendMessage`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ chat_id: chatId, text: part }),
+				});
+				if (!response.ok) {
+					logger.error("Telegram sendMessage failed", { status: response.status });
+				}
+			} catch (error) {
+				logger.error("Telegram sendMessage threw", {
+					reason: error instanceof Error ? error.name : "unknown",
+				});
+			}
+		}
+	}
+}
+
 export class TelegramChannel implements ChannelLike {
 	readonly name = "telegram";
 
 	constructor(
-		private botToken: string,
 		private allowedUserId: string,
 		private db: Database,
-		private agents: AgentRegistry,
-		private sandbox: SandboxManager,
+		private scheduler: Scheduler,
+		private sender: TelegramSender,
 	) {}
 
 	async handleWebhook(payload: unknown): Promise<void> {
 		const update = payload as TelegramUpdate;
-		const message = update.message;
-
-		if (!message?.text) {
-			logger.debug("Ignoring update with no text message");
+		const message = update?.message;
+		if (
+			!message?.text ||
+			!message.from ||
+			!message.chat ||
+			!Number.isSafeInteger(message.message_id)
+		) {
+			logger.debug("Ignoring malformed or non-text Telegram update");
 			return;
 		}
 
 		const userId = String(message.from.id);
-		const chatId = message.chat.id;
+		const chatId = String(message.chat.id);
 		const text = message.text.trim();
-
+		if (!text) return;
 		if (userId !== this.allowedUserId) {
-			logger.warn("Rejected message from unauthorized user", { userId });
-			await this.sendMessage(chatId, "Unauthorized.");
+			logger.warn("Rejected Telegram message from unauthorized user", { userId });
+			await this.sender.send(chatId, "Unauthorized.");
 			return;
 		}
 
-		logger.info("Received telegram message", { userId, preview: text.slice(0, 50) });
-
-		if (text.startsWith("/new")) {
-			await this.handleNew(chatId, userId, text);
+		const rawCommand = text.split(/\s+/, 1)[0] ?? "";
+		const command = rawCommand.split("@", 1)[0]?.toLowerCase();
+		if (command === "/new") {
+			await this.sender.send(
+				chatId,
+				"No /new command is needed. Send the repository and task naturally (for example: “Fix owner/repo issue #42”).",
+			);
 			return;
 		}
-
-		if (text.startsWith("/status")) {
+		if (command === "/status") {
 			await this.handleStatus(chatId, userId);
 			return;
 		}
-
-		await this.handlePrompt(chatId, userId, text);
-	}
-
-	private async handleNew(chatId: number, userId: string, text: string): Promise<void> {
-		const [, repository, agentArg] = text.split(/\s+/);
-		const agentName = (agentArg || "copilot") as AgentName;
-
-		if (!repository || !repository.includes("/")) {
-			await this.sendMessage(chatId, "Usage: /new owner/repository [copilot|devin]");
+		if (command === "/instructions") {
+			await this.handleInstructions(chatId, userId, text.slice(rawCommand.length).trim());
 			return;
 		}
 
-		if (!KNOWN_AGENTS.includes(agentName)) {
-			await this.sendMessage(
-				chatId,
-				`Unknown agent "${agentName}". Available: ${this.agents.names().join(", ")}`,
-			);
-			return;
-		}
-
-		const agent = this.agents.get(agentName);
-		if (!agent) {
-			await this.sendMessage(chatId, `Agent "${agentName}" is not registered.`);
-			return;
-		}
-
-		await this.sendMessage(chatId, `Starting a sandbox for ${repository} with ${agentName}...`);
-
-		try {
-			const sandboxId = await this.sandbox.create();
-			await agent.ensureReady(sandboxId, repository);
-
-			const now = new Date();
-			const conversation: Conversation = {
-				id: `conv_${crypto.randomUUID()}`,
-				channel: "telegram",
-				userId,
-				agent: agentName,
-				repository,
-				sandboxId,
-				sessionId: null,
-				createdAt: now,
-				updatedAt: now,
-			};
-
-			await this.db.saveConversation(conversation);
-			await this.sendMessage(
-				chatId,
-				`Ready. Cloned ${repository} into a sandbox running ${agentName}. Send a message to start prompting it.`,
-			);
-		} catch (error) {
-			logger.error("Failed to start a new conversation", error);
-			await this.sendMessage(chatId, "Failed to start a new session. Check gateway logs.");
-		}
-	}
-
-	private async handleStatus(chatId: number, userId: string): Promise<void> {
-		const conversation = await this.db.getLatestConversationForUser(userId, "telegram");
-
-		if (!conversation) {
-			await this.sendMessage(
-				chatId,
-				"No active session. Use /new owner/repository [agent] to start one.",
-			);
-			return;
-		}
-
-		await this.sendMessage(
+		const queued = await this.db.enqueueTelegramTurn({
+			userId,
 			chatId,
-			`Agent: ${conversation.agent}\nRepository: ${conversation.repository}\nSandbox: ${conversation.sandboxId}\nLast updated: ${conversation.updatedAt.toISOString()}`,
+			telegramMessageId: message.message_id,
+			prompt: text,
+		});
+		if (!queued.job) return;
+		void this.sender.send(chatId, "Accepted. Your request is queued.");
+		this.scheduler.kick();
+	}
+
+	private async handleStatus(chatId: string, userId: string): Promise<void> {
+		const status = await this.db.getStatus("telegram", userId, chatId);
+		if (!status.conversation) {
+			await this.sender.send(
+				chatId,
+				"No main session yet. Send a repository and task naturally to start one.",
+			);
+			return;
+		}
+		await this.sender.send(
+			chatId,
+			[
+				`Main sandbox: ${status.conversation.sandboxId ?? "inactive (created on next turn)"}`,
+				`Main turns: ${status.runningMain} running, ${status.pendingMain} queued`,
+				`Workers: ${status.runningWorkers} running, ${status.pendingWorkers} queued`,
+				`Last activity: ${status.conversation.lastActivityAt.toISOString()}`,
+			].join("\n"),
 		);
 	}
 
-	private async handlePrompt(chatId: number, userId: string, prompt: string): Promise<void> {
-		const conversation = await this.db.getLatestConversationForUser(userId, "telegram");
-
-		if (!conversation || !conversation.sandboxId) {
-			await this.sendMessage(
+	private async handleInstructions(
+		chatId: string,
+		userId: string,
+		argumentsText: string,
+	): Promise<void> {
+		if (!argumentsText) {
+			const instructions = await this.db.getInstructions("telegram", userId);
+			await this.sender.send(
 				chatId,
-				"No active session. Use /new owner/repository [agent] to start one.",
+				instructions ? `Global instructions:\n${instructions}` : "No global instructions set.",
 			);
 			return;
 		}
 
-		const agent = this.agents.get(conversation.agent);
-		if (!agent) {
-			await this.sendMessage(chatId, `Agent "${conversation.agent}" is not registered.`);
+		if (argumentsText.toLowerCase() === "clear") {
+			const sandboxIds = await this.db.changeInstructions({
+				channel: "telegram",
+				userId,
+				content: null,
+			});
+			for (const sandboxId of sandboxIds) {
+				await this.scheduler.invalidateMainSandbox(sandboxId);
+			}
+			await this.sender.send(
+				chatId,
+				"Global instructions cleared. The main sandbox will be recreated on the next turn.",
+			);
 			return;
 		}
 
-		await this.db.saveMessage({
-			id: `msg_${crypto.randomUUID()}`,
-			conversationId: conversation.id,
-			channel: "telegram",
-			userId,
-			content: prompt,
-			createdAt: new Date(),
-		});
-
-		try {
-			const result = await agent.send({
-				sandboxId: conversation.sandboxId,
-				repository: conversation.repository,
-				repositoryPath: repositoryPath(conversation.repository),
-				prompt,
-				conversationSessionId: conversation.sessionId,
-			});
-
-			await this.db.saveConversation({
-				...conversation,
-				sessionId: result.sessionId,
-				updatedAt: new Date(),
-			});
-
-			await this.sendMessage(chatId, result.output || "(no output)");
-		} catch (error) {
-			logger.error("Agent turn failed", error);
-			await this.sendMessage(chatId, "The agent hit an unexpected error. Check gateway logs.");
-		}
-	}
-
-	private async sendMessage(chatId: number, text: string): Promise<void> {
-		const url = `https://api.telegram.org/bot${this.botToken}/sendMessage`;
-
-		try {
-			const response = await fetch(url, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ chat_id: chatId, text }),
-			});
-
-			if (!response.ok) {
-				logger.error("Telegram sendMessage failed", { status: response.status });
+		if (argumentsText.toLowerCase().startsWith("set ")) {
+			const content = argumentsText.slice(4).trim();
+			if (!content) {
+				await this.sender.send(chatId, "Usage: /instructions set <text>");
+				return;
 			}
-		} catch (error) {
-			logger.error("Telegram sendMessage threw", error);
+			if (content.length > 20_000) {
+				await this.sender.send(chatId, "Instructions are too long (maximum 20,000 characters).");
+				return;
+			}
+			const sandboxIds = await this.db.changeInstructions({
+				channel: "telegram",
+				userId,
+				content,
+			});
+			for (const sandboxId of sandboxIds) {
+				await this.scheduler.invalidateMainSandbox(sandboxId);
+			}
+			await this.sender.send(
+				chatId,
+				"Global instructions saved. The main sandbox will be recreated on the next turn.",
+			);
+			return;
 		}
+
+		await this.sender.send(
+			chatId,
+			"Usage: /instructions | /instructions set <text> | /instructions clear",
+		);
 	}
+}
+
+export function splitTelegramMessage(text: string, limit = 4000): string[] {
+	if (text.length <= limit) return [text];
+	const parts: string[] = [];
+	let remaining = text;
+	while (remaining.length > limit) {
+		const newline = remaining.lastIndexOf("\n", limit);
+		const splitAt = newline > limit / 2 ? newline : limit;
+		parts.push(remaining.slice(0, splitAt));
+		remaining = remaining.slice(splitAt).replace(/^\n/, "");
+	}
+	if (remaining) parts.push(remaining);
+	return parts;
 }

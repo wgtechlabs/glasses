@@ -5,7 +5,9 @@
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0) [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/) [![Node.js](https://img.shields.io/badge/NodeJS-Runtime-green.svg)](https://nodejs.org/) [![BunJS](https://img.shields.io/badge/BunJS-Toolchain-F9F1E1.svg)](https://bun.sh/) [![Docker Hub](https://img.shields.io/badge/Docker%20Hub-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/r/wgtechlabs/glasses) [![GitHub Packages](https://img.shields.io/badge/GitHub%20Packages-181717?logo=github&logoColor=white)](https://github.com/wgtechlabs/glasses/pkgs/container/glasses)
 
-Coding should not stop when you leave your terminal. Glasses brings your coding agents wherever you are: it is a self-hosted gateway that lets you direct GitHub Copilot CLI, Devin CLI, and other agents through Telegram, Discord, or WhatsApp, while each conversation runs in its own isolated [Railway Sandbox](https://docs.railway.com/guides/agents-in-sandboxes) with your repository cloned and session preserved, so you can build, review, and ship from a simple chat.
+Coding should not stop when you leave your terminal. Glasses is a self-hosted Telegram
+gateway that coordinates GitHub Copilot coding work in isolated
+[Railway Sandboxes](https://docs.railway.com/guides/agents-in-sandboxes).
 
 ## 💡 Inspiration
 
@@ -20,25 +22,28 @@ You (Telegram/Discord/WhatsApp)
    Glasses gateway  ──── Postgres (conversations, messages, jobs)
         │
         ▼
-  Railway Sandbox (per conversation)
-        │
+  Railway main sandbox (Copilot SDK orchestration)
+       │ delegate_task
         ▼
-  Coding CLI (Copilot today, Devin next) + your cloned repo
+  Fresh Railway worker sandbox + cloned repository
 ```
 
-- `/new owner/repo [agent]` provisions a fresh sandbox, clones the repo, and
-  starts a session with the chosen agent (defaults to `copilot`).
-- Plain messages after that are forwarded as prompts to the same agent in
-  the same sandbox — full conversational context, exactly like using the
-  CLI locally.
-- `/status` shows which repo/agent/sandbox your current conversation is
-  bound to.
+- Send a plain message containing a repository and task. Glasses automatically
+  creates or resumes one main Copilot session for that Telegram user/chat.
+- The main session can call native `delegate_task(owner/repo, task)`. Every task
+  gets a fresh worker sandbox; different repositories can run concurrently and
+  work for the same repository is serialized.
+- `/status` shows the main sandbox and queued/running main turns and workers.
+- `/instructions`, `/instructions set <text>`, and `/instructions clear` manage
+  DB-backed global instructions used by main and worker sessions.
+- `/new` is compatibility-only; it tells users to send the task naturally.
 
 ## 📊 Status
 
 - ✅ Telegram channel
-- ✅ Copilot CLI wrapper (non-interactive `copilot -p`, session resume)
-- 🚧 Devin CLI wrapper (interface in place, not yet implemented)
+- ✅ Copilot SDK main/worker sandbox orchestration
+- ✅ Durable Postgres job claims and bounded session rehydration
+- ⏸️ Devin support is deferred and is not available
 - 🚧 Discord, WhatsApp channels (planned)
 
 ## 🚀 Getting started
@@ -78,12 +83,25 @@ See [`.env.example`](./.env.example) for the full list:
 |---|---|
 | `RAILWAY_API_TOKEN` | Railway API token with Sandbox access |
 | `RAILWAY_ENVIRONMENT_ID` | Environment sandboxes are created in |
+| `MAIN_SANDBOX_IDLE_MINUTES` | Railway auto-destroy timeout for inactive main sandboxes |
+| `JOB_TIMEOUT_SECONDS` | Sandbox runner timeout |
+| `SCHEDULER_POLL_MS` | Durable scheduler polling interval |
+| `SCHEDULER_WORKER_CONCURRENCY` | Maximum workers claimed by this gateway process |
 | `DATABASE_URL` | Postgres connection string |
 | `TELEGRAM_BOT_TOKEN` | Bot token from @BotFather |
 | `TELEGRAM_ALLOWED_USER_ID` | Only this Telegram user id can talk to the bot |
 | `PORT` | HTTP port (default `3000`) |
 | `LOG_LEVEL` | `debug` \| `info` \| `warn` \| `error` |
 | `COPILOT_GITHUB_TOKEN` | GitHub token for Copilot CLI auth inside sandboxes |
+| `MEMORY_MESSAGE_LIMIT` | Recent main-chat messages restored after sandbox loss |
+| `MEMORY_WORKER_LIMIT` | Recent worker summaries restored after sandbox loss |
+
+`COPILOT_GITHUB_TOKEN` is injected into the isolated sandbox environment for
+Copilot and authenticated `gh repo clone` (including private repositories). It
+is never placed in prompts or command strings.
+
+> Railway Sandboxes and `@github/copilot-sdk` are preview/beta APIs. Pin and
+> review dependency updates because their APIs may change.
 
 ### 🚂 Deploying to Railway
 

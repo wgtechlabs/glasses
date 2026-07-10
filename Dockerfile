@@ -12,16 +12,16 @@
 # 5. final        - Create minimal runtime image with built app (no Bun)
 # =============================================================================
 
-ARG NODE_VERSION=22-alpine
+ARG NODE_VERSION=22-bookworm-slim
 ARG BUN_VERSION=1.3.9
 
 FROM node:${NODE_VERSION} AS base
-RUN apk update && apk upgrade --no-cache && \
-    apk add --no-cache dumb-init && \
-    rm -rf /var/cache/apk/*
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends dumb-init ca-certificates gh && \
+    rm -rf /var/lib/apt/lists/*
 WORKDIR /usr/src/app
 
-FROM oven/bun:${BUN_VERSION}-alpine AS bun
+FROM oven/bun:${BUN_VERSION} AS bun
 
 # Bun is installed here for dependency management and building only — the
 # final runtime launches the gateway with Node.js and does NOT include Bun.
@@ -51,8 +51,8 @@ ENV NODE_ENV=production \
 # the image, including packages that have had advisories.
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001 -G nodejs -s /sbin/nologin
+RUN groupadd --gid 1001 nodejs && \
+    useradd --uid 1001 --gid nodejs --shell /usr/sbin/nologin --create-home nodejs
 
 COPY --chown=nodejs:nodejs package.json ./
 COPY --from=deps --chown=nodejs:nodejs /usr/src/app/node_modules ./node_modules

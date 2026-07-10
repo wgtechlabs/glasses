@@ -1,74 +1,83 @@
 # Architecture
 
-## Overview
+## Responsibilities
 
-Glasses is a single Node.js HTTP service (`src/index.ts`, built with Bun) with
-four layers:
+The Node 22 Railway service is only a Telegram gateway, durable scheduler, and
+Postgres persistence layer. It never runs Copilot against the gateway
+filesystem.
 
 ```text
-channels/   → parses inbound chat platform payloads, replies to users
-agents/     → wraps each coding CLI's actual invocation
-sandbox.ts  → provisions and drives Railway Sandboxes
-db.ts       → persists conversations, messages, jobs in Postgres
+Telegram -> gateway -> Postgres jobs -> Railway main sandbox
+                                         |
+                                         | delegate_task
+                                         v
+                                  Railway worker sandbox
 ```
 
-Nothing above the `agents/` layer knows how a specific CLI is invoked;
-nothing above `sandbox.ts` knows it's talking to Railway. This keeps adding
-a new chat channel (Discord, WhatsApp) or a new coding CLI (Claude, Aider)
-additive rather than invasive.
+Both sandbox types receive `dist/runner.js`, a JSON input file, and the packaged
+Linux Copilot CLI through `sandbox.files.write`; workers also receive the
+packaged GitHub CLI. Prompts and tasks are never interpolated into shell
+commands. The runner uses `@github/copilot-sdk` without a `model` option,
+preserving the authenticated CLI's default provider/model.
 
-## Conversation lifecycle
+## Main sessions
 
-1. **`/new owner/repo [agent]`** — the channel asks `SandboxManager` to
-   create a sandbox, then asks the chosen `AgentLike.ensureReady()` to
-   clone the repository into it. A `Conversation` row is persisted mapping
-   `(channel, userId)` → `(agent, repository, sandboxId, sessionId)`.
-2. **Plain message** — the channel looks up the user's latest
-   conversation, forwards the message text to `AgentLike.send()` along with
-   the stored `sessionId` (if the CLI supports resuming), and persists any
-   new session id returned. The CLI's response is relayed back verbatim.
-3. **`/status`** — reads the stored conversation and reports which
-   repo/agent/sandbox it's bound to.
+There is one main conversation for `(channel, user_id, chat_id)`. Plain
+Telegram messages create it automatically and enqueue a `main_turn`; `/new` no
+longer provisions anything. Main turns are claimed with
+`FOR UPDATE SKIP LOCKED` and serialized per conversation.
 
-Only one active conversation per `(channel, userId)` is currently tracked
-— `getLatestConversationForUser` always resolves to the most recently
-started one. Supporting multiple concurrent conversations per user is a
-natural extension (e.g. `/switch <conversation-id>`) but isn't built yet.
+The main runner exposes only the native custom
+`delegate_task(repository, task)` tool. Its in-sandbox handler validates and
+records requests in the structured runner result. There is no callback endpoint
+from a sandbox to the gateway.
 
-## Agent wrappers
+Railway's idle timeout destroys inactive main sandboxes. The next turn detects a
+missing/stale sandbox, creates a replacement, and restores a bounded recent
+message transcript and worker summaries from Postgres. Copilot session IDs are
+resumed while the same sandbox remains available.
 
-`AgentLike` (`src/agents/types.ts`) is intentionally CLI-shaped, not
-protocol-shaped: `ensureReady(sandboxId, repository)` then
-`send({ prompt, conversationSessionId, ... })`. This mirrors how you'd
-actually drive these tools by hand:
+## Workers and concurrency
 
-- **Copilot** (`src/agents/copilot.ts`) shells out to
-  `copilot -p "<prompt>" -s --allow-all-tools --no-ask-user`, optionally
-  with `--resume <sessionId>`, inside the sandbox via `SandboxManager.exec`.
-  Auth is expected to already be present in the sandbox environment
-  (`COPILOT_GITHUB_TOKEN` or a pre-authenticated `gh` CLI).
-- **Devin** (`src/agents/devin.ts`) is a skeleton only — `send()` reports
-  a friendly "not implemented" message. Wiring it up means shelling out to
-  `devin -p "<prompt>"` / `devin -r <id>` the same way Copilot does.
+Each delegation is a durable `worker` job and receives a fresh sandbox. The
+runner uses argument-array process spawning to execute authenticated
+`gh repo clone owner/repo`, then runs a Copilot SDK session in that repository.
+Repository-local Copilot instruction discovery remains enabled.
 
-Both are registered in `src/agents/registry.ts`, which is the only place
-that needs to change to add a new CLI.
+A partial unique index and claim query permit one running worker per
+`(conversation, repository)`. Different repositories may be claimed
+concurrently. Worker sandboxes are explicitly destroyed in `finally`.
 
-## Why Railway Sandboxes
+Worker completion is stored transactionally with a synthetic `worker_result`
+main turn. That serialized main turn produces the coherent Telegram response.
+Telegram receives lifecycle and bounded distinct tool milestones, not model
+token streams.
 
-Each conversation's sandbox holds the cloned repository and whatever local
-state the CLI accumulates (git history, build caches, CLI session files).
-Reusing the same sandbox id across messages is what makes a chat
-conversation behave like a persistent terminal session instead of a fresh
-container per message. Sandboxes are created with `networkIsolation` set
-so agent code can't reach anything outside the sandbox except what's
-explicitly allowed.
+## Durability and restarts
 
-## Deliberately deferred
+Jobs persist sandbox IDs, Railway durable exec session names, claim times, and
+results. On startup, running jobs are reattached through Railway SDK v3
+`exec({ sessionName })`. If the sandbox/session is unavailable, the job is
+explicitly failed (and worker failure is queued through the main session);
+repository edits are never silently retried.
 
-- Discord and WhatsApp channels — same `ChannelLike` contract, no gateway
-  changes needed.
-- Devin CLI real implementation.
-- Sandbox idle cleanup / cost controls beyond the SDK's own
-  `idleTimeoutMinutes`.
-- Multi-conversation-per-user support.
+Postgres schema changes are additive `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`
+operations in `Database.initialize()`, preserving early deployments. Telegram
+message IDs are unique for webhook deduplication.
+
+## Instructions and security
+
+Global instructions are keyed by channel/user in Postgres and applied to main
+and worker system messages. Changing them clears and destroys the current main
+sandbox so the next turn uses the new instructions. Repo-local instruction
+files are handled by Copilot.
+
+Repositories must be strict `owner/repository` identifiers. The Telegram
+allowlist is enforced before persistence. `COPILOT_GITHUB_TOKEN` is passed only
+as sandbox environment configuration (also as `GH_TOKEN` for private clones);
+it is not logged, included in prompts, or passed through per-exec command
+strings.
+
+Devin is deliberately deferred and is not registered as a working backend.
+Railway Sandboxes and the Copilot SDK are preview/beta dependencies and may
+introduce breaking API changes.
