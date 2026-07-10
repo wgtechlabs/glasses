@@ -13,6 +13,36 @@ interface TelegramUpdate {
 	};
 }
 
+function telegramHtml(markdown: string): string {
+	const code: string[] = [];
+	const stash = (value: string, tag: "code" | "pre"): string => {
+		const index = code.push(`<${tag}>${escapeHtml(value)}</${tag}>`) - 1;
+		return `\0${index}\0`;
+	};
+	let text = markdown
+		.replace(/```[^\n]*\n?([\s\S]*?)(?:```|$)/g, (_, value: string) => stash(value, "pre"))
+		.replace(/`([^`\n]+)`/g, (_, value: string) => stash(value, "code"));
+
+	text = escapeHtml(text)
+		.replace(/^#{1,6}\s+(.+)$/gm, "<b>$1</b>")
+		.replace(/^[-*]\s+/gm, "• ")
+		.replace(/^>\s?(.+)$/gm, "<blockquote>$1</blockquote>")
+		.replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2">$1</a>')
+		.replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")
+		.replace(/__([^_\n]+)__/g, "<b>$1</b>")
+		.replace(/~~([^~\n]+)~~/g, "<s>$1</s>");
+
+	return code.reduce((result, value, index) => result.replaceAll(`\0${index}\0`, value), text);
+}
+
+function escapeHtml(value: string): string {
+	return value
+		.replaceAll("&", "&amp;")
+		.replaceAll('"', "&quot;")
+		.replaceAll("<", "&lt;")
+		.replaceAll(">", "&gt;");
+}
+
 export interface TelegramSender {
 	send(chatId: string, text: string): Promise<void>;
 }
@@ -68,24 +98,29 @@ export class TelegramMessenger implements TelegramSender, ChatNotifier {
 	startStreaming(chatId: string): { update(delta: string): void; stop(): void } {
 		const draftId = randomInt(1, 2_147_483_647);
 		let text = "";
-		let timer: NodeJS.Timeout | null = null;
-		void this.sendDraft(chatId, draftId, "");
+		let dirty = true;
+		let sending = false;
+		let stopped = false;
 
-		const flush = (): void => {
-			timer = null;
-			void this.sendDraft(chatId, draftId, text.slice(-4096));
+		const flush = async (): Promise<void> => {
+			if (sending || stopped) return;
+			sending = true;
+			while (dirty && !stopped) {
+				dirty = false;
+				await this.sendDraft(chatId, draftId, text.slice(-4096));
+			}
+			sending = false;
 		};
+		void flush();
 
 		return {
 			update: (delta) => {
 				text += delta;
-				if (!timer) {
-					timer = setTimeout(flush, 250);
-					timer.unref();
-				}
+				dirty = true;
+				void flush();
 			},
 			stop: () => {
-				if (timer) clearTimeout(timer);
+				stopped = true;
 			},
 		};
 	}
@@ -97,7 +132,11 @@ export class TelegramMessenger implements TelegramSender, ChatNotifier {
 				const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendMessage`, {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ chat_id: chatId, text: part }),
+					body: JSON.stringify({
+						chat_id: chatId,
+						text: telegramHtml(part),
+						parse_mode: "HTML",
+					}),
 				});
 				if (!response.ok) {
 					logger.error("Telegram sendMessage failed", { status: response.status });
@@ -117,7 +156,12 @@ export class TelegramMessenger implements TelegramSender, ChatNotifier {
 				{
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ chat_id: chatId, draft_id: draftId, text }),
+					body: JSON.stringify({
+						chat_id: chatId,
+						draft_id: draftId,
+						text: telegramHtml(text),
+						parse_mode: "HTML",
+					}),
 				},
 			);
 			if (!response.ok) {
