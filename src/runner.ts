@@ -24,21 +24,26 @@ Help the user coordinate repository work. For implementation tasks, call delegat
 strict owner/repository and a complete task. You do not edit repositories in this main sandbox.
 Use the read-only GitHub and web tools for information gathering. Delegate only work that requires a
 repository checkout, edits, tests, builds, or deep local analysis.
+Never delegate PR, issue, workflow, repository metadata, code search, or public web lookups.
 Report delegation acceptance accurately and never claim a worker has completed before a worker result is provided.
 GitHub Copilot workers are available. Devin is deferred and must not be presented as working.`;
+
+const GITHUB_TOOLS = [
+	"get_file_contents",
+	"search_code",
+	"list_issues",
+	"issue_read",
+	"list_pull_requests",
+	"pull_request_read",
+	"list_workflow_runs",
+	"get_workflow_run",
+	"web_search",
+] as const;
 
 const MAIN_TOOLS = [
 	"custom:delegate_task",
 	"builtin:web_fetch",
-	"mcp:web_search",
-	"mcp:github-mcp-server-get_file_contents",
-	"mcp:github-mcp-server-search_code",
-	"mcp:github-mcp-server-list_issues",
-	"mcp:github-mcp-server-issue_read",
-	"mcp:github-mcp-server-list_pull_requests",
-	"mcp:github-mcp-server-pull_request_read",
-	"mcp:github-mcp-server-list_workflow_runs",
-	"mcp:github-mcp-server-get_workflow_run",
+	...GITHUB_TOOLS.map((tool) => `mcp:github-${tool}`),
 ] as const;
 
 const WORKER_SYSTEM_MESSAGE = `You are a Glasses repository worker. Complete the delegated task in the
@@ -158,11 +163,21 @@ function sessionConfig(
 	};
 
 	if (input.mode === "main") {
+		const gitHubToken = process.env.GH_TOKEN ?? process.env.COPILOT_GITHUB_TOKEN;
+		if (!gitHubToken) throw new Error("GitHub token is unavailable.");
 		config.availableTools = [...MAIN_TOOLS];
+		config.mcpServers = {
+			github: {
+				type: "http",
+				url: "https://api.githubcopilot.com/mcp/",
+				headers: { Authorization: `Bearer ${gitHubToken}` },
+				tools: [...GITHUB_TOOLS],
+			},
+		};
 		config.tools = [
 			defineTool("delegate_task", {
 				description:
-					"Queue an implementation task in a fresh isolated worker sandbox for a GitHub repository.",
+					"Queue work that requires a repository checkout, edits, commands, tests, or builds. Never use this for PR, issue, workflow, metadata, code search, or web lookups.",
 				parameters: {
 					type: "object",
 					additionalProperties: false,
