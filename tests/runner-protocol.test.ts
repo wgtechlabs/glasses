@@ -1,7 +1,14 @@
 import { describe, expect, it } from "bun:test";
-import { JsonLineParser, parseRunnerResult } from "../src/runner-protocol";
+import { JsonLineParser, parseRunnerResult, shouldDelegate } from "../src/runner-protocol";
 
 describe("runner protocol", () => {
+	it("keeps information requests in the main session", () => {
+		expect(shouldDelegate("How many PRs do we have for wgtechlabs/glasses?")).toBe(false);
+		expect(shouldDelegate("Check the current workflow status")).toBe(false);
+		expect(shouldDelegate("Fix the failing workflow")).toBe(true);
+		expect(shouldDelegate("Add authentication to wgtechlabs/glasses")).toBe(true);
+	});
+
 	it("parses chunked JSONL events and ignores non-protocol output", () => {
 		const parser = new JsonLineParser();
 		expect(parser.push('{"type":"lifecycle","stage":"run')).toEqual([]);

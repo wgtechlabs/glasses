@@ -33,7 +33,9 @@ read-only allowlist for GitHub metadata, issues, pull requests, workflow runs,
 web search, and web fetch. Information requests stay in the main session;
 checkout, edit, test, and build work is delegated. The delegation handler
 validates and records requests in the structured runner result, with no callback
-endpoint from a sandbox to the gateway.
+endpoint from a sandbox to the gateway. Clear information-shaped prompts omit
+`delegate_task` entirely, preventing the model from spawning a worker for basic
+lookups.
 
 Railway destroys main sandboxes after 25 idle minutes. The next turn detects a
 missing/stale sandbox, creates a replacement, and restores a bounded recent

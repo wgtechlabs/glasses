@@ -43,6 +43,15 @@ export type RunnerEvent =
 	| { type: "tool"; stage: "started" | "completed"; name: string }
 	| { type: "text_delta"; content: string };
 
+const WORK_REQUEST =
+	/\b(add|analyze|apply|audit|build|change|commit|configure|create|delete|deploy|edit|fix|implement|improve|install|investigate|merge|migrate|modify|push|refactor|release|remove|rename|run|test|upgrade|write)\b/i;
+const INFORMATION_REQUEST =
+	/[?]|\b(any|check|current|explain|find|how|latest|list|show|status|summarize|what|when|where|which|who|why)\b/i;
+
+export function shouldDelegate(prompt: string): boolean {
+	return WORK_REQUEST.test(prompt) || !INFORMATION_REQUEST.test(prompt);
+}
+
 export function parseRunnerEvent(line: string): RunnerEvent | null {
 	try {
 		const value = JSON.parse(line) as Record<string, unknown>;

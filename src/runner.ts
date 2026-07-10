@@ -18,6 +18,7 @@ import type {
 	TranscriptEntry,
 	WorkerSummary,
 } from "./runner-protocol";
+import { shouldDelegate } from "./runner-protocol";
 
 const MAIN_SYSTEM_MESSAGE = `You are the Glasses orchestration session.
 Help the user coordinate repository work. For implementation tasks, call delegate_task with exactly one
@@ -41,7 +42,6 @@ const GITHUB_TOOLS = [
 ] as const;
 
 const MAIN_TOOLS = [
-	"custom:delegate_task",
 	"builtin:web_fetch",
 	...GITHUB_TOOLS.map((tool) => `mcp:github-${tool}`),
 ] as const;
@@ -174,7 +174,8 @@ function sessionConfig(
 	if (input.mode === "main") {
 		const gitHubToken = process.env.GH_TOKEN ?? process.env.COPILOT_GITHUB_TOKEN;
 		if (!gitHubToken) throw new Error("GitHub token is unavailable.");
-		config.availableTools = [...MAIN_TOOLS];
+		const delegationAllowed = shouldDelegate(input.prompt);
+		config.availableTools = [...MAIN_TOOLS, ...(delegationAllowed ? ["custom:delegate_task"] : [])];
 		config.mcpServers = {
 			github: {
 				type: "http",
@@ -202,6 +203,14 @@ function sessionConfig(
 				defer: "never",
 				skipPermission: true,
 				handler: async (raw) => {
+					if (!delegationAllowed) {
+						return {
+							resultType: "failure",
+							textResultForLlm:
+								"This is an information request. Use the available read-only tools.",
+							error: "Information requests cannot be delegated.",
+						};
+					}
 					const args = raw as Record<string, unknown>;
 					const repository = typeof args.repository === "string" ? args.repository.trim() : "";
 					const task = typeof args.task === "string" ? args.task.trim() : "";
