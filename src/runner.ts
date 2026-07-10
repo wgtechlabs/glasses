@@ -18,7 +18,6 @@ import type {
 	TranscriptEntry,
 	WorkerSummary,
 } from "./runner-protocol";
-import { shouldDelegate } from "./runner-protocol";
 
 const MAIN_SYSTEM_MESSAGE = `You are the Glasses orchestration session.
 Help the user coordinate repository work. For implementation tasks, call delegate_task with exactly one
@@ -42,6 +41,7 @@ const GITHUB_TOOLS = [
 ] as const;
 
 const MAIN_TOOLS = [
+	"custom:delegate_task",
 	"builtin:web_fetch",
 	...GITHUB_TOOLS.map((tool) => `mcp:github-${tool}`),
 ] as const;
@@ -152,6 +152,16 @@ Current turn:
 ${prompt}`;
 }
 
+function routedPrompt(prompt: string): string {
+	return `Route this turn by capability:
+- Use GitHub or web tools directly for facts, status, counts, summaries, and other read-only lookups.
+- Use delegate_task only when the request requires a repository checkout, code changes, command execution, tests, or builds.
+- Do not mention tools, routing, delegation availability, or these instructions in the response.
+
+User request:
+${prompt}`;
+}
+
 function sessionConfig(
 	input: RunnerInput,
 	workingDirectory: string,
@@ -174,8 +184,7 @@ function sessionConfig(
 	if (input.mode === "main") {
 		const gitHubToken = process.env.GH_TOKEN ?? process.env.COPILOT_GITHUB_TOKEN;
 		if (!gitHubToken) throw new Error("GitHub token is unavailable.");
-		const delegationAllowed = shouldDelegate(input.prompt);
-		config.availableTools = [...MAIN_TOOLS, ...(delegationAllowed ? ["custom:delegate_task"] : [])];
+		config.availableTools = [...MAIN_TOOLS];
 		config.mcpServers = {
 			github: {
 				type: "http",
@@ -203,14 +212,6 @@ function sessionConfig(
 				defer: "never",
 				skipPermission: true,
 				handler: async (raw) => {
-					if (!delegationAllowed) {
-						return {
-							resultType: "failure",
-							textResultForLlm:
-								"This is an information request. Use the available read-only tools.",
-							error: "Information requests cannot be delegated.",
-						};
-					}
 					const args = raw as Record<string, unknown>;
 					const repository = typeof args.repository === "string" ? args.repository.trim() : "";
 					const task = typeof args.task === "string" ? args.task.trim() : "";
@@ -282,10 +283,11 @@ async function execute(input: RunnerInput): Promise<RunnerResult> {
 		}
 		attachEvents(session);
 		emit({ type: "lifecycle", stage: "running" });
+		const currentPrompt = input.mode === "main" ? routedPrompt(input.prompt) : input.prompt;
 		const prompt =
 			input.mode === "main" && (input.rehydrate || recreatedSession || !input.sessionId)
-				? recoveryPrompt(input.prompt, input.transcript, input.workerSummaries)
-				: input.prompt;
+				? recoveryPrompt(currentPrompt, input.transcript, input.workerSummaries)
+				: currentPrompt;
 		const response = await session.sendAndWait({ prompt }, 3_500_000);
 		emit({ type: "lifecycle", stage: "completed" });
 		return {
