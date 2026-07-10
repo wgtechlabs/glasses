@@ -1,0 +1,3 @@
+[test]
+coverage = false
+timeout = 10000

@@ -4,6 +4,6 @@
  * Railway directly.
  */
 export interface ChannelLike {
-  readonly name: string;
-  handleWebhook(payload: unknown): Promise<void>;
+	readonly name: string;
+	handleWebhook(payload: unknown): Promise<void>;
 }

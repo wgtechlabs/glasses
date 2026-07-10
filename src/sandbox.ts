@@ -2,9 +2,9 @@ import { Sandbox } from "railway";
 import { logger } from "./logger";
 
 export interface SandboxCreateOptions {
-  idleTimeoutMinutes?: number;
-  privateNetwork?: boolean;
-  env?: Record<string, string>;
+	idleTimeoutMinutes?: number;
+	privateNetwork?: boolean;
+	env?: Record<string, string>;
 }
 
 /**
@@ -13,58 +13,54 @@ export interface SandboxCreateOptions {
  * sandbox, reused across messages via its id.
  */
 export class SandboxManager {
-  constructor(
-    private railwayToken: string,
-    private railwayEnvironmentId: string
-  ) {}
+	constructor(
+		private railwayToken: string,
+		private railwayEnvironmentId: string,
+	) {}
 
-  async create(options: SandboxCreateOptions = {}): Promise<string> {
-    const sandbox = await Sandbox.create({
-      token: this.railwayToken,
-      environmentId: this.railwayEnvironmentId,
-      idleTimeoutMinutes: options.idleTimeoutMinutes ?? 60,
-      networkIsolation: options.privateNetwork ? "PRIVATE" : "ISOLATED",
-      env: options.env,
-    });
+	async create(options: SandboxCreateOptions = {}): Promise<string> {
+		const sandbox = await Sandbox.create({
+			token: this.railwayToken,
+			environmentId: this.railwayEnvironmentId,
+			idleTimeoutMinutes: options.idleTimeoutMinutes ?? 60,
+			networkIsolation: options.privateNetwork ? "PRIVATE" : "ISOLATED",
+			env: options.env,
+		});
 
-    logger.info("Sandbox created", { sandboxId: sandbox.id });
-    return sandbox.id;
-  }
+		logger.info("Sandbox created", { sandboxId: sandbox.id });
+		return sandbox.id;
+	}
 
-  /**
-   * Runs a command to completion in an existing sandbox and returns its
-   * stdout. Non-zero exits return stderr (or a fallback message) instead
-   * of throwing, so callers can relay the failure back to the user.
-   */
-  async exec(
-    sandboxId: string,
-    command: string,
-    timeoutSec = 300
-  ): Promise<string> {
-    const sandbox = await Sandbox.connect(sandboxId, {
-      token: this.railwayToken,
-      environmentId: this.railwayEnvironmentId,
-    });
+	/**
+	 * Runs a command to completion in an existing sandbox and returns its
+	 * stdout. Non-zero exits return stderr (or a fallback message) instead
+	 * of throwing, so callers can relay the failure back to the user.
+	 */
+	async exec(sandboxId: string, command: string, timeoutSec = 300): Promise<string> {
+		const sandbox = await Sandbox.connect(sandboxId, {
+			token: this.railwayToken,
+			environmentId: this.railwayEnvironmentId,
+		});
 
-    const result = await sandbox.exec(command, { timeoutSec });
+		const result = await sandbox.exec(command, { timeoutSec });
 
-    if (result.exitCode !== 0) {
-      logger.warn("Sandbox command exited non-zero", {
-        sandboxId,
-        exitCode: result.exitCode,
-      });
-      return result.stderr || `Command failed with exit code ${result.exitCode}`;
-    }
+		if (result.exitCode !== 0) {
+			logger.warn("Sandbox command exited non-zero", {
+				sandboxId,
+				exitCode: result.exitCode,
+			});
+			return result.stderr || `Command failed with exit code ${result.exitCode}`;
+		}
 
-    return result.stdout;
-  }
+		return result.stdout;
+	}
 
-  async destroy(sandboxId: string): Promise<void> {
-    const sandbox = await Sandbox.connect(sandboxId, {
-      token: this.railwayToken,
-      environmentId: this.railwayEnvironmentId,
-    });
-    await sandbox.destroy();
-    logger.info("Sandbox destroyed", { sandboxId });
-  }
+	async destroy(sandboxId: string): Promise<void> {
+		const sandbox = await Sandbox.connect(sandboxId, {
+			token: this.railwayToken,
+			environmentId: this.railwayEnvironmentId,
+		});
+		await sandbox.destroy();
+		logger.info("Sandbox destroyed", { sandboxId });
+	}
 }

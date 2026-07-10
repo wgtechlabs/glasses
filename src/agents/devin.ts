@@ -1,4 +1,3 @@
-import type { SandboxManager } from "../sandbox";
 import { logger } from "../logger";
 import type { AgentLike, AgentSendInput, AgentSendResult } from "./types";
 
@@ -13,23 +12,21 @@ import type { AgentLike, AgentSendInput, AgentSendResult } from "./types";
  * Add when Devin CLI support is prioritized.
  */
 export class DevinAgent implements AgentLike {
-  readonly name = "devin";
+	readonly name = "devin";
 
-  constructor(private sandbox: SandboxManager) {}
+	async ensureReady(sandboxId: string, repository: string): Promise<void> {
+		logger.debug("DevinAgent.ensureReady is a no-op placeholder", {
+			sandboxId,
+			repository,
+		});
+	}
 
-  async ensureReady(sandboxId: string, repository: string): Promise<void> {
-    logger.debug("DevinAgent.ensureReady is a no-op placeholder", {
-      sandboxId,
-      repository,
-    });
-  }
-
-  async send(input: AgentSendInput): Promise<AgentSendResult> {
-    logger.warn("Devin CLI support is not implemented yet");
-    return {
-      output: "Devin CLI support is coming soon — Copilot is available today.",
-      sessionId: input.conversationSessionId,
-      succeeded: false,
-    };
-  }
+	async send(input: AgentSendInput): Promise<AgentSendResult> {
+		logger.warn("Devin CLI support is not implemented yet");
+		return {
+			output: "Devin CLI support is coming soon — Copilot is available today.",
+			sessionId: input.conversationSessionId,
+			succeeded: false,
+		};
+	}
 }

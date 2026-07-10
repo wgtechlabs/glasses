@@ -4,6 +4,6 @@
  * as `repositoryPath` when invoking an agent).
  */
 export function repositoryPath(repository: string): string {
-  const name = repository.split("/")[1] ?? repository;
-  return `/workspace/${name}`;
+	const name = repository.split("/")[1] ?? repository;
+	return `/workspace/${name}`;
 }

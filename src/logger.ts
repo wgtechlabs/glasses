@@ -1,36 +1,28 @@
+import { LogEngine, LogMode } from "@wgtechlabs/log-engine";
+
 type LogLevel = "debug" | "info" | "warn" | "error";
 
-const LEVEL_ORDER: Record<LogLevel, number> = {
-  debug: 0,
-  info: 1,
-  warn: 2,
-  error: 3,
+const LOG_LEVEL_TO_MODE: Record<LogLevel, LogMode> = {
+	debug: LogMode.DEBUG,
+	info: LogMode.INFO,
+	warn: LogMode.WARN,
+	error: LogMode.ERROR,
 };
 
-export class Logger {
-  constructor(private level: LogLevel = "info") {}
-
-  private enabled(target: LogLevel): boolean {
-    return LEVEL_ORDER[target] >= LEVEL_ORDER[this.level];
-  }
-
-  debug(msg: string, data?: unknown): void {
-    if (this.enabled("debug")) console.log(`[DEBUG] ${msg}`, data ?? "");
-  }
-
-  info(msg: string, data?: unknown): void {
-    if (this.enabled("info")) console.log(`[INFO] ${msg}`, data ?? "");
-  }
-
-  warn(msg: string, data?: unknown): void {
-    if (this.enabled("warn")) console.warn(`[WARN] ${msg}`, data ?? "");
-  }
-
-  error(msg: string, data?: unknown): void {
-    if (this.enabled("error")) console.error(`[ERROR] ${msg}`, data ?? "");
-  }
+/** Sets the global log level threshold. Call once at startup with `config.logLevel`. */
+export function setLogLevel(level: LogLevel): void {
+	LogEngine.configure({ mode: LOG_LEVEL_TO_MODE[level] });
 }
 
-export const logger = new Logger(
-  (process.env.LOG_LEVEL as LogLevel) || "info"
-);
+/**
+ * Thin wrapper over @wgtechlabs/log-engine matching this project's prior
+ * `logger.info(msg, data?)` call shape so existing call sites don't churn.
+ */
+export const logger = {
+	debug: (msg: string, data?: unknown) => LogEngine.debug(msg, data),
+	info: (msg: string, data?: unknown) => LogEngine.info(msg, data),
+	warn: (msg: string, data?: unknown) => LogEngine.warn(msg, data),
+	error: (msg: string, data?: unknown) => LogEngine.error(msg, data),
+};
+
+setLogLevel((process.env.LOG_LEVEL as LogLevel) || "info");

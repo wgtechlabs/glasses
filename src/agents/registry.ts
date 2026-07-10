@@ -8,18 +8,18 @@ import type { AgentLike } from "./types";
  * else — channels and the gateway only ever talk to `AgentLike`.
  */
 export class AgentRegistry {
-  private agents = new Map<string, AgentLike>();
+	private agents = new Map<string, AgentLike>();
 
-  constructor(sandbox: SandboxManager) {
-    this.agents.set("copilot", new CopilotAgent(sandbox));
-    this.agents.set("devin", new DevinAgent(sandbox));
-  }
+	constructor(sandbox: SandboxManager) {
+		this.agents.set("copilot", new CopilotAgent(sandbox));
+		this.agents.set("devin", new DevinAgent());
+	}
 
-  get(name: string): AgentLike | undefined {
-    return this.agents.get(name);
-  }
+	get(name: string): AgentLike | undefined {
+		return this.agents.get(name);
+	}
 
-  names(): string[] {
-    return Array.from(this.agents.keys());
-  }
+	names(): string[] {
+		return Array.from(this.agents.keys());
+	}
 }

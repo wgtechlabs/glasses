@@ -1,30 +1,39 @@
 {
-  "name": "glasses",
-  "version": "0.1.0",
-  "description": "Remote coding agents, anywhere. Chat with Copilot, Devin, and other coding CLIs from Telegram, Discord, or WhatsApp.",
-  "module": "src/index.ts",
-  "type": "module",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/wgtechlabs/glasses.git"
-  },
-  "scripts": {
-    "dev": "bun run src/index.ts",
-    "build": "tsc",
-    "start": "bun dist/index.js",
-    "test": "bun test",
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "dotenv": "^16.4.5",
-    "postgres": "^3.4.4",
-    "railway": "^3.0.0",
-    "zod": "^3.23.8"
-  },
-  "devDependencies": {
-    "@types/bun": "latest",
-    "@types/node": "^22.0.0",
-    "typescript": "^5.5.4"
-  }
+	"name": "glasses",
+	"version": "0.1.0",
+	"description": "Remote coding agents, anywhere. Chat with Copilot, Devin, and other coding CLIs from Telegram, Discord, or WhatsApp.",
+	"module": "src/index.ts",
+	"type": "module",
+	"license": "GPL-3.0-or-later",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/wgtechlabs/glasses.git"
+	},
+	"engines": {
+		"node": ">=22.0.0"
+	},
+	"scripts": {
+		"dev": "bun run --watch src/index.ts",
+		"build": "bun build src/index.ts --outdir dist --target node",
+		"start": "node dist/index.js",
+		"lint": "biome check .",
+		"lint:fix": "biome check --write .",
+		"format": "biome format --write .",
+		"typecheck": "tsc --noEmit",
+		"test": "bun test"
+	},
+	"dependencies": {
+		"@wgtechlabs/log-engine": "^2.3.1",
+		"dotenv": "^16.4.5",
+		"pg": "^8.22.0",
+		"railway": "^3.0.0",
+		"zod": "^3.23.8"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "1.9.4",
+		"@types/bun": "latest",
+		"@types/node": "^22.0.0",
+		"@types/pg": "^8.20.0",
+		"typescript": "^5.5.4"
+	}
 }
