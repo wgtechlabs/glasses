@@ -13,7 +13,6 @@ const validEnv = {
 describe("loadConfig", () => {
 	it("loads orchestration defaults", () => {
 		const config = loadConfig(validEnv as NodeJS.ProcessEnv);
-		expect(config.mainSandboxIdleMinutes).toBe(60);
 		expect(config.memoryMessageLimit).toBe(20);
 		expect(config.schedulerWorkerConcurrency).toBe(4);
 		expect(config.copilotGithubToken).toBe("copilot_token");
@@ -22,11 +21,9 @@ describe("loadConfig", () => {
 	it("accepts bounded orchestration overrides", () => {
 		const config = loadConfig({
 			...validEnv,
-			MAIN_SANDBOX_IDLE_MINUTES: "15",
 			MEMORY_MESSAGE_LIMIT: "8",
 			SCHEDULER_WORKER_CONCURRENCY: "2",
 		} as NodeJS.ProcessEnv);
-		expect(config.mainSandboxIdleMinutes).toBe(15);
 		expect(config.memoryMessageLimit).toBe(8);
 		expect(config.schedulerWorkerConcurrency).toBe(2);
 	});

@@ -84,7 +84,6 @@ See [`.env.example`](./.env.example) for the full list:
 | `RAILWAY_API_TOKEN` | Railway API token with Sandbox access |
 | `RAILWAY_ENVIRONMENT_ID` | Environment sandboxes are created in (provided automatically on Railway) |
 | `RAILWAY_PUBLIC_DOMAIN` | Public domain used to register the Telegram webhook (provided automatically on Railway) |
-| `MAIN_SANDBOX_IDLE_MINUTES` | Railway auto-destroy timeout for inactive main sandboxes |
 | `JOB_TIMEOUT_SECONDS` | Sandbox runner timeout |
 | `SCHEDULER_POLL_MS` | Durable scheduler polling interval |
 | `SCHEDULER_WORKER_CONCURRENCY` | Maximum workers claimed by this gateway process |

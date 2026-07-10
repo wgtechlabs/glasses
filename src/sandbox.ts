@@ -29,12 +29,12 @@ export class SandboxManager {
 		this.runnerPath = runnerPath ?? fileURLToPath(new URL("../dist/runner.js", import.meta.url));
 	}
 
-	async createMain(authToken: string, idleTimeoutMinutes: number): Promise<string> {
-		return this.create(authToken, idleTimeoutMinutes);
+	async createMain(authToken: string): Promise<string> {
+		return this.create(authToken, 25);
 	}
 
 	async createWorker(authToken: string): Promise<string> {
-		return this.create(authToken, 60);
+		return this.create(authToken, 15);
 	}
 
 	private async create(authToken: string, idleTimeoutMinutes: number): Promise<string> {

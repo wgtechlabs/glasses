@@ -59,7 +59,6 @@ export interface Config {
 	telegramBotToken: string;
 	telegramAllowedUserId: string;
 	copilotGithubToken: string;
-	mainSandboxIdleMinutes: number;
 	memoryMessageLimit: number;
 	memoryWorkerLimit: number;
 	schedulerPollMs: number;

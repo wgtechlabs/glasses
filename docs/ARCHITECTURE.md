@@ -34,7 +34,7 @@ checkout, edit, test, and build work is delegated. The delegation handler
 validates and records requests in the structured runner result, with no callback
 endpoint from a sandbox to the gateway.
 
-Railway's idle timeout destroys inactive main sandboxes. The next turn detects a
+Railway destroys main sandboxes after 25 idle minutes. The next turn detects a
 missing/stale sandbox, creates a replacement, and restores a bounded recent
 message transcript and worker summaries from Postgres. Copilot session IDs are
 resumed while the same sandbox remains available.
@@ -48,7 +48,8 @@ Repository-local Copilot instruction discovery remains enabled.
 
 A partial unique index and claim query permit one running worker per
 `(conversation, repository)`. Different repositories may be claimed
-concurrently. Worker sandboxes are explicitly destroyed in `finally`.
+concurrently. Worker sandboxes have a 15-minute idle timeout and are explicitly
+destroyed in `finally`.
 
 Worker completion is stored transactionally with a synthetic `worker_result`
 main turn. That serialized main turn produces the coherent Telegram response.

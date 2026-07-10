@@ -6,7 +6,6 @@ import type { Config, Conversation, Job } from "../src/types";
 
 const config = {
 	copilotGithubToken: "secret",
-	mainSandboxIdleMinutes: 30,
 	schedulerPollMs: 2000,
 	schedulerWorkerConcurrency: 4,
 	jobTimeoutSeconds: 3600,

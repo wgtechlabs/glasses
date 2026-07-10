@@ -80,10 +80,7 @@ export class Scheduler {
 				sessionId: conversation.copilotSessionId,
 			};
 		}
-		const sandboxId = await this.sandbox.createMain(
-			this.config.copilotGithubToken,
-			this.config.mainSandboxIdleMinutes,
-		);
+		const sandboxId = await this.sandbox.createMain(this.config.copilotGithubToken);
 		await this.db.updateConversationRuntime(conversation.id, sandboxId, null);
 		return { sandboxId, recreated: true, sessionId: null };
 	}
