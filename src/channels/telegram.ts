@@ -36,6 +36,23 @@ export class TelegramChannel implements ChannelLike {
 		private sandbox: SandboxManager,
 	) {}
 
+	async registerWebhook(publicDomain?: string): Promise<void> {
+		if (!publicDomain) return;
+
+		const webhookUrl = `https://${publicDomain}/webhook/telegram`;
+		const response = await fetch(`https://api.telegram.org/bot${this.botToken}/setWebhook`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ url: webhookUrl }),
+		});
+
+		if (!response.ok) {
+			throw new Error(`Telegram setWebhook failed with status ${response.status}`);
+		}
+
+		logger.info("Telegram webhook registered", { webhookUrl });
+	}
+
 	async handleWebhook(payload: unknown): Promise<void> {
 		const update = payload as TelegramUpdate;
 		const message = update.message;

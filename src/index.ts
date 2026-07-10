@@ -1,3 +1,4 @@
+import { once } from "node:events";
 import { createServer } from "node:http";
 import { AgentRegistry } from "./agents/registry";
 import { TelegramChannel } from "./channels/telegram";
@@ -67,9 +68,10 @@ async function main(): Promise<void> {
 		res.end("Not found");
 	});
 
-	server.listen(config.port, () => {
-		logger.info(`Gateway listening on port ${config.port}`);
-	});
+	server.listen(config.port);
+	await once(server, "listening");
+	logger.info(`Gateway listening on port ${config.port}`);
+	await telegram.registerWebhook(process.env.RAILWAY_PUBLIC_DOMAIN);
 }
 
 main().catch((error) => {
