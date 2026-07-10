@@ -2,7 +2,8 @@
 
 ## Overview
 
-Glasses is a single Bun HTTP service (`src/index.ts`) with four layers:
+Glasses is a single Node.js HTTP service (`src/index.ts`, built with Bun) with
+four layers:
 
 ```text
 channels/   → parses inbound chat platform payloads, replies to users
