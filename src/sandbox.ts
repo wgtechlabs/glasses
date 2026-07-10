@@ -24,7 +24,12 @@ export class SandboxManager {
 			environmentId: this.railwayEnvironmentId,
 			idleTimeoutMinutes: options.idleTimeoutMinutes ?? 60,
 			networkIsolation: options.privateNetwork ? "PRIVATE" : "ISOLATED",
-			env: options.env,
+			env: {
+				...(process.env.COPILOT_GITHUB_TOKEN
+					? { COPILOT_GITHUB_TOKEN: process.env.COPILOT_GITHUB_TOKEN }
+					: {}),
+				...options.env,
+			},
 		});
 
 		logger.info("Sandbox created", { sandboxId: sandbox.id });
@@ -33,8 +38,8 @@ export class SandboxManager {
 
 	/**
 	 * Runs a command to completion in an existing sandbox and returns its
-	 * stdout. Non-zero exits return stderr (or a fallback message) instead
-	 * of throwing, so callers can relay the failure back to the user.
+	 * stdout. Non-zero exits throw so callers cannot mistake failures for
+	 * successful agent output.
 	 */
 	async exec(sandboxId: string, command: string, timeoutSec = 300): Promise<string> {
 		const sandbox = await Sandbox.connect(sandboxId, {
@@ -49,7 +54,9 @@ export class SandboxManager {
 				sandboxId,
 				exitCode: result.exitCode,
 			});
-			return result.stderr || `Command failed with exit code ${result.exitCode}`;
+			throw new Error(
+				result.stderr || result.stdout || `Command failed with exit code ${result.exitCode}`,
+			);
 		}
 
 		return result.stdout;

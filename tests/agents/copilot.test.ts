@@ -22,6 +22,8 @@ describe("CopilotAgent", () => {
 		await agent.ensureReady("sbx_1", "wgtechlabs/glasses");
 
 		expect(commands).toHaveLength(1);
+		expect(commands[0]).toContain("command -v copilot");
+		expect(commands[0]).toContain("npm install -g @github/copilot");
 		expect(commands[0]).toContain("git clone");
 		expect(commands[0]).toContain("wgtechlabs/glasses");
 		expect(commands[0]).toContain("/workspace/glasses");

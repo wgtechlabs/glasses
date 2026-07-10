@@ -23,7 +23,7 @@ export class CopilotAgent implements AgentLike {
 		const repoPath = repositoryPath(repository);
 		await this.sandbox.exec(
 			sandboxId,
-			`[ -d "${repoPath}/.git" ] || git clone --depth 1 "https://github.com/${repository}.git" "${repoPath}"`,
+			`(command -v copilot >/dev/null 2>&1 || npm install -g @github/copilot) && ([ -d "${repoPath}/.git" ] || git clone --depth 1 "https://github.com/${repository}.git" "${repoPath}")`,
 		);
 	}
 
