@@ -1,5 +1,8 @@
 # Glasses
 
+![GitHub Repo Banner](https://ghrb.waren.build/banner?header=Glasses+%F0%9F%91%93&subheader=Your+coding+agents%2C+wherever+you+are.&bg=013B84-016EEA&color=FFFFFF&headerfont=Inter&subheaderfont=Kinewave&watermarkpos=bottom-right)
+<!-- Created with GitHub Repo Banner by Waren Gonzaga: https://ghrb.waren.build -->
+
 > Your coding agents, wherever you are.
 
 Coding should not stop when you leave your terminal. Glasses brings your coding agents wherever you are: it is a self-hosted gateway that lets you direct GitHub Copilot CLI, Devin CLI, and other agents through Telegram, Discord, or WhatsApp, while each conversation runs in its own isolated [Railway Sandbox](https://docs.railway.com/guides/agents-in-sandboxes) with your repository cloned and session preserved, so you can build, review, and ship from a simple chat.
