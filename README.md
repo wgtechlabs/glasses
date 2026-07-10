@@ -3,13 +3,13 @@
 ![GitHub Repo Banner](https://ghrb.waren.build/banner?header=Glasses+%F0%9F%91%93&subheader=Your+coding+agents%2C+wherever+you+are.&bg=013B84-016EEA&color=FFFFFF&headerfont=Inter&subheaderfont=Kinewave&watermarkpos=bottom-right)
 <!-- Created with GitHub Repo Banner by Waren Gonzaga: https://ghrb.waren.build -->
 
-> Your coding agents, wherever you are.
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0) [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/) [![Node.js](https://img.shields.io/badge/NodeJS-Runtime-green.svg)](https://nodejs.org/) [![BunJS](https://img.shields.io/badge/BunJS-Toolchain-F9F1E1.svg)](https://bun.sh/) [![Docker Hub](https://img.shields.io/badge/Docker%20Hub-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/r/wgtechlabs/glasses) [![GitHub Packages](https://img.shields.io/badge/GitHub%20Packages-181717?logo=github&logoColor=white)](https://github.com/wgtechlabs/glasses/pkgs/container/glasses)
 
 Coding should not stop when you leave your terminal. Glasses brings your coding agents wherever you are: it is a self-hosted gateway that lets you direct GitHub Copilot CLI, Devin CLI, and other agents through Telegram, Discord, or WhatsApp, while each conversation runs in its own isolated [Railway Sandbox](https://docs.railway.com/guides/agents-in-sandboxes) with your repository cloned and session preserved, so you can build, review, and ship from a simple chat.
 
-Named after Harold Finch ("Glasses," as Lionel Fusco calls him in
-*Person of Interest*), the person orchestrating everything from behind the
-scenes.
+## 💡 Inspiration
+
+I really like _Harold Finch_ ("Glasses," as _Lionel Fusco_ calls him) from the TV series _Person of Interest_ because he is the mind behind _The Machine_, the ultimate AI he built in the story. This project takes inspiration from that same behind-the-scenes orchestration: one quiet control point coordinating agents, repositories, and sandbox sessions so real coding work keeps moving from simple chat messages.
 
 ## 🧭 How it works
 

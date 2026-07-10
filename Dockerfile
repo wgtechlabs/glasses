@@ -47,6 +47,10 @@ FROM base AS runtime
 ENV NODE_ENV=production \
     NODE_OPTIONS="--enable-source-maps"
 
+# The runtime only needs Node.js; npm and npx pull unused package trees into
+# the image, including packages that have had advisories.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
+
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nodejs -u 1001 -G nodejs -s /sbin/nologin
 

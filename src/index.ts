@@ -24,7 +24,7 @@ function readJsonBody(req: import("node:http").IncomingMessage): Promise<unknown
 }
 
 async function main(): Promise<void> {
-	logger.info("👓 Starting Glasses gateway");
+	logger.info("Starting Glasses gateway");
 
 	const config = loadConfig();
 	const db = new Database(config.databaseUrl);
