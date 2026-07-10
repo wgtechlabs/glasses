@@ -27,10 +27,12 @@ Telegram messages create it automatically and enqueue a `main_turn`; `/new` no
 longer provisions anything. Main turns are claimed with
 `FOR UPDATE SKIP LOCKED` and serialized per conversation.
 
-The main runner exposes only the native custom
-`delegate_task(repository, task)` tool. Its in-sandbox handler validates and
-records requests in the structured runner result. There is no callback endpoint
-from a sandbox to the gateway.
+The main runner exposes `delegate_task(repository, task)` plus a small
+read-only allowlist for GitHub metadata, issues, pull requests, workflow runs,
+web search, and web fetch. Information requests stay in the main session;
+checkout, edit, test, and build work is delegated. The delegation handler
+validates and records requests in the structured runner result, with no callback
+endpoint from a sandbox to the gateway.
 
 Railway's idle timeout destroys inactive main sandboxes. The next turn detects a
 missing/stale sandbox, creates a replacement, and restores a bounded recent

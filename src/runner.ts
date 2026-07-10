@@ -22,8 +22,24 @@ import type {
 const MAIN_SYSTEM_MESSAGE = `You are the Glasses orchestration session.
 Help the user coordinate repository work. For implementation tasks, call delegate_task with exactly one
 strict owner/repository and a complete task. You do not edit repositories in this main sandbox.
+Use the read-only GitHub and web tools for information gathering. Delegate only work that requires a
+repository checkout, edits, tests, builds, or deep local analysis.
 Report delegation acceptance accurately and never claim a worker has completed before a worker result is provided.
 GitHub Copilot workers are available. Devin is deferred and must not be presented as working.`;
+
+const MAIN_TOOLS = [
+	"custom:delegate_task",
+	"builtin:web_fetch",
+	"mcp:web_search",
+	"mcp:github-mcp-server-get_file_contents",
+	"mcp:github-mcp-server-search_code",
+	"mcp:github-mcp-server-list_issues",
+	"mcp:github-mcp-server-issue_read",
+	"mcp:github-mcp-server-list_pull_requests",
+	"mcp:github-mcp-server-pull_request_read",
+	"mcp:github-mcp-server-list_workflow_runs",
+	"mcp:github-mcp-server-get_workflow_run",
+] as const;
 
 const WORKER_SYSTEM_MESSAGE = `You are a Glasses repository worker. Complete the delegated task in the
 current repository, validate your changes, and return a concise factual summary. Do not delegate further.`;
@@ -142,7 +158,7 @@ function sessionConfig(
 	};
 
 	if (input.mode === "main") {
-		config.availableTools = ["custom:delegate_task"];
+		config.availableTools = [...MAIN_TOOLS];
 		config.tools = [
 			defineTool("delegate_task", {
 				description:
