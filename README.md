@@ -1,19 +1,17 @@
 # Glasses
 
+![GitHub Repo Banner](https://ghrb.waren.build/banner?header=Glasses+%F0%9F%91%93&subheader=Your+coding+agents%2C+wherever+you+are.&bg=013B84-016EEA&color=FFFFFF&headerfont=Inter&subheaderfont=Kinewave&watermarkpos=bottom-right)
+<!-- Created with GitHub Repo Banner by Waren Gonzaga: https://ghrb.waren.build -->
+
 > Your coding agents, wherever you are.
 
-Glasses is a self-hosted gateway that lets you chat with coding CLIs —
-GitHub Copilot CLI today, Devin CLI next, more to come — over Telegram,
-Discord, or WhatsApp, just like you'd talk to them in a terminal. Every
-conversation runs in its own isolated [Railway Sandbox](https://docs.railway.com/guides/agents-in-sandboxes),
-with your repository cloned and the agent's session preserved between
-messages, so you can keep coding without ever opening a local terminal.
+Coding should not stop when you leave your terminal. Glasses brings your coding agents wherever you are: it is a self-hosted gateway that lets you direct GitHub Copilot CLI, Devin CLI, and other agents through Telegram, Discord, or WhatsApp, while each conversation runs in its own isolated [Railway Sandbox](https://docs.railway.com/guides/agents-in-sandboxes) with your repository cloned and session preserved, so you can build, review, and ship from a simple chat.
 
-Named after Harold Finch — "Glasses," as Lionel Fusco calls him in
-*Person of Interest* — the person orchestrating everything from behind the
+Named after Harold Finch ("Glasses," as Lionel Fusco calls him in
+*Person of Interest*), the person orchestrating everything from behind the
 scenes.
 
-## How it works
+## 🧭 How it works
 
 ```text
 You (Telegram/Discord/WhatsApp)
@@ -36,33 +34,31 @@ You (Telegram/Discord/WhatsApp)
 - `/status` shows which repo/agent/sandbox your current conversation is
   bound to.
 
-## Status
+## 📊 Status
 
 - ✅ Telegram channel
 - ✅ Copilot CLI wrapper (non-interactive `copilot -p`, session resume)
 - 🚧 Devin CLI wrapper (interface in place, not yet implemented)
 - 🚧 Discord, WhatsApp channels (planned)
 
-## Getting started
+## 🚀 Getting started
 
-### Requirements
+### 📋 Requirements
 
-- [Bun](https://bun.sh) 1.x (dependency install and build only — see [Runtime](#runtime) below)
-- [Node.js](https://nodejs.org) >=22 (runs the built gateway)
+- [Node.js](https://nodejs.org) >=22 (the gateway runtime)
+- [Bun](https://bun.sh) 1.x (dependency management, development, and builds)
 - A Postgres database (Railway can provision one for you)
 - A Railway account with [Sandboxes](https://docs.railway.com/guides/agents-in-sandboxes) enabled
 - A Telegram bot token from [@BotFather](https://t.me/BotFather)
 
-### Runtime
+### ⚙️ Runtime
 
-Glasses uses Bun for dependency management and bundling (`bun install`,
-`bun run build`), but the gateway itself runs on **Node.js** in production —
-matching the rest of the [wgtechlabs](https://github.com/wgtechlabs) bot
-fleet (e.g. [devin-discord-bot](https://github.com/wgtechlabs/devin-discord-bot)).
-The Docker image installs Bun only in a build stage; the final runtime
-image is plain Node.js Alpine with no Bun present.
+Glasses runs on **Node.js**. Bun is the toolchain for dependency management,
+development, and bundling (`bun install`, `bun run dev`, and `bun run build`).
+The Docker image uses Bun only while building; the final runtime image is
+plain Node.js Alpine with no Bun present.
 
-### Local development
+### 💻 Local development
 
 ```bash
 bun install
@@ -74,7 +70,7 @@ Then point your Telegram bot's webhook at
 `https://<your-tunnel>/webhook/telegram` (use a tool like `ngrok` for local
 testing).
 
-### Environment variables
+### 🔐 Environment variables
 
 See [`.env.example`](./.env.example) for the full list:
 
@@ -89,7 +85,7 @@ See [`.env.example`](./.env.example) for the full list:
 | `LOG_LEVEL` | `debug` \| `info` \| `warn` \| `error` |
 | `COPILOT_GITHUB_TOKEN` | GitHub token for Copilot CLI auth inside sandboxes |
 
-### Deploying to Railway
+### 🚂 Deploying to Railway
 
 1. Push this repo to your own GitHub account (or fork it).
 2. Create a new Railway project from the repo — `railway.json` and the
@@ -101,7 +97,7 @@ See [`.env.example`](./.env.example) for the full list:
 See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for more detail on how
 the pieces fit together.
 
-## Development
+## 🛠️ Development
 
 ```bash
 bun test         # run tests
@@ -110,6 +106,49 @@ bun run lint      # check formatting/lint with biome
 bun run build     # bundle to dist/ (target: node)
 ```
 
-## License
+## 💬 Community Discussions
 
-GPL-3.0-or-later
+Join our community discussions to get help, share ideas, and connect with other users:
+
+- 📣 **[Announcements](https://github.com/wgtechlabs/glasses/discussions/categories/announcements)**: Official updates from the maintainer
+- 📸 **[Showcase](https://github.com/wgtechlabs/glasses/discussions/categories/showcase)**: Show and tell your implementation
+- 💖 **[Wall of Love](https://github.com/wgtechlabs/glasses/discussions/categories/wall-of-love)**: Share your experience with the bot
+- 🛟 **[Help & Support](https://github.com/wgtechlabs/glasses/discussions/categories/help-support)**: Get assistance from the community
+- 🧠 **[Ideas](https://github.com/wgtechlabs/glasses/discussions/categories/ideas)**: Suggest new features and improvements
+
+## 🛟 Help & Support
+
+Need help? Check our [Help & Support](https://github.com/wgtechlabs/glasses/discussions/categories/help-support) discussions or [create a new issue](https://github.com/wgtechlabs/glasses/issues/new/choose).
+
+## 🎯 Contributing
+
+**Important**: Submit pull requests to the `dev` branch following the repository workflow.
+
+Contributions are welcome! Your code must pass `bun run typecheck` before merging.
+
+## 💖 Sponsors
+
+Like this project? **Leave a star**! ⭐⭐⭐⭐⭐
+
+There are several ways you can support this project:
+
+- [Become a sponsor](https://github.com/sponsors/wgtechlabs) and get some perks! 💖
+- [Buy us a coffee](https://buymeacoffee.com/wgtechlabs) if you love what we do! ☕
+
+## ⭐ GitHub Star Nomination
+
+Found this project helpful? Consider nominating me **(@warengonzaga)** for the [GitHub Star program](https://stars.github.com/nominate/)! This recognition supports ongoing development of this project and [my other open-source projects](https://github.com/warengonzaga?tab=repositories). GitHub Stars are recognized for their significant contributions to the developer community. Your nomination makes a difference and encourages continued innovation!
+
+## 📃 License
+
+This project is licensed under [GPL-3.0-or-later](https://spdx.org/licenses/GPL-3.0-or-later.html).
+
+## 📝 Author
+
+This project is created by **[Waren Gonzaga](https://github.com/warengonzaga)** under [WG Technology Labs](https://github.com/wgtechlabs), with the help of awesome [contributors](https://github.com/wgtechlabs/glasses/graphs/contributors).
+
+[![contributors](https://contrib.rocks/image?repo=wgtechlabs/glasses)](https://github.com/wgtechlabs/glasses/graphs/contributors)
+
+---
+
+💻💖☕ by [Waren Gonzaga](https://warengonzaga.com) | [YHWH](https://www.youtube.com/watch?v=VOZbswniA-g) 🙏 - Without _Him_, none of this exists, _even me_.
