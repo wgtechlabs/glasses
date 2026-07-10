@@ -5,7 +5,7 @@ import type { Database } from "../../src/db";
 import type { SandboxManager } from "../../src/sandbox";
 
 describe("TelegramChannel", () => {
-	it("registers the Railway domain as its webhook", async () => {
+	it("registers the webhook and bot commands", async () => {
 		const originalFetch = globalThis.fetch;
 		const fetchMock = mock(async () => new Response(null, { status: 200 }));
 		globalThis.fetch = fetchMock as typeof fetch;
@@ -21,7 +21,7 @@ describe("TelegramChannel", () => {
 
 			await telegram.registerWebhook("glasses-production.up.railway.app");
 
-			expect(fetchMock).toHaveBeenCalledTimes(1);
+			expect(fetchMock).toHaveBeenCalledTimes(2);
 			expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.telegram.org/botbot_token/setWebhook");
 			const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
 			expect(body).toEqual({
@@ -30,6 +30,14 @@ describe("TelegramChannel", () => {
 			});
 			expect(telegram.isValidWebhookSecret(body.secret_token)).toBe(true);
 			expect(telegram.isValidWebhookSecret("wrong")).toBe(false);
+			expect(fetchMock.mock.calls[1]?.[0]).toBe(
+				"https://api.telegram.org/botbot_token/setMyCommands",
+			);
+			expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+				commands: expect.arrayContaining([
+					{ command: "delete", description: "Delete the active sandbox session" },
+				]),
+			});
 		} finally {
 			globalThis.fetch = originalFetch;
 		}

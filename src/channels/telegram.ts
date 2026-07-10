@@ -58,6 +58,26 @@ export class TelegramChannel implements ChannelLike {
 			);
 		}
 
+		const commandsResponse = await fetch(
+			`https://api.telegram.org/bot${this.botToken}/setMyCommands`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					commands: [
+						{ command: "new", description: "Start a sandbox session" },
+						{ command: "status", description: "Show the active session" },
+						{ command: "delete", description: "Delete the active sandbox session" },
+					],
+				}),
+			},
+		);
+		if (!commandsResponse.ok) {
+			throw new Error(
+				`Telegram setMyCommands failed with status ${commandsResponse.status}: ${await commandsResponse.text()}`,
+			);
+		}
+
 		logger.info("Telegram webhook registered", { webhookUrl });
 	}
 
