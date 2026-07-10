@@ -54,9 +54,8 @@ export class SandboxManager {
 				sandboxId,
 				exitCode: result.exitCode,
 			});
-			throw new Error(
-				result.stderr || result.stdout || `Command failed with exit code ${result.exitCode}`,
-			);
+			const output = result.stderr || result.stdout || "No command output";
+			throw new Error(`Command failed with exit code ${result.exitCode}: ${output}`);
 		}
 
 		return result.stdout;

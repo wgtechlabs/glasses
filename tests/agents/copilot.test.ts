@@ -29,6 +29,16 @@ describe("CopilotAgent", () => {
 		expect(commands[0]).toContain("/workspace/glasses");
 	});
 
+	it("rejects repository names that could alter the shell command", async () => {
+		const sandbox = fakeSandbox(async () => "");
+		const agent = new CopilotAgent(sandbox);
+
+		expect(agent.ensureReady("sbx_1", 'owner/repo"; echo unsafe')).rejects.toThrow(
+			"owner/repository",
+		);
+		expect(sandbox.exec).not.toHaveBeenCalled();
+	});
+
 	it("sends a prompt through the copilot CLI in non-interactive mode", async () => {
 		const commands: string[] = [];
 		const sandbox = fakeSandbox(async (_id, command) => {

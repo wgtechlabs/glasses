@@ -20,6 +20,10 @@ export class CopilotAgent implements AgentLike {
 	constructor(private sandbox: SandboxManager) {}
 
 	async ensureReady(sandboxId: string, repository: string): Promise<void> {
+		if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]*[A-Za-z0-9_-]$/.test(repository)) {
+			throw new Error("Repository must use the owner/repository format");
+		}
+
 		const repoPath = repositoryPath(repository);
 		await this.sandbox.exec(
 			sandboxId,
