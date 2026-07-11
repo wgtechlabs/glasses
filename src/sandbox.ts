@@ -138,7 +138,10 @@ export class SandboxManager {
 		const outcome = await handle;
 		this.dispatchEvents(parser.finish(), callbacks);
 		if (outcome.timedOut) throw new Error("Sandbox runner timed out.");
-		return this.readResult(sandbox);
+		if (outcome.exitCode !== 0) {
+			throw new Error(`Sandbox runner exited with code ${outcome.exitCode}.`);
+		}
+		return this.readResultWithRetry(sandbox);
 	}
 
 	async reattachRunner(
@@ -159,7 +162,10 @@ export class SandboxManager {
 		);
 		this.dispatchEvents(parser.finish(), callbacks);
 		if (outcome.timedOut) throw new Error("Reattached sandbox runner timed out.");
-		return this.readResult(sandbox);
+		if (outcome.exitCode !== 0) {
+			throw new Error(`Reattached sandbox runner exited with code ${outcome.exitCode}.`);
+		}
+		return this.readResultWithRetry(sandbox);
 	}
 
 	async destroy(sandboxId: string): Promise<void> {
@@ -185,6 +191,26 @@ export class SandboxManager {
 	private async readResult(sandbox: Sandbox): Promise<RunnerResult> {
 		const raw = await sandbox.files.read("/glasses/result.json");
 		return parseRunnerResult(Buffer.from(raw).toString("utf8"));
+	}
+
+	private async readResultWithRetry(sandbox: Sandbox): Promise<RunnerResult> {
+		const maxAttempts = 3;
+		let lastError: Error | undefined;
+		for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+			try {
+				return await this.readResult(sandbox);
+			} catch (error) {
+				// Only a not-yet-visible result file is transient. Parse errors,
+				// permission errors, and everything else are real failures we surface
+				// immediately instead of masking them behind retries.
+				if (!(error instanceof Error) || !isResultFileNotFound(error)) throw error;
+				lastError = error;
+				if (attempt < maxAttempts - 1) {
+					await new Promise((resolve) => setTimeout(resolve, 200 * (attempt + 1)));
+				}
+			}
+		}
+		throw lastError ?? new Error("Worker runner result was not produced.");
 	}
 
 	private dispatchEvents(events: RunnerEvent[], callbacks: RunnerCallbacks): void {
@@ -217,4 +243,15 @@ export class SandboxManager {
 			"Linux Copilot CLI package is unavailable. Set GLASSES_COPILOT_CLI_PATH explicitly.",
 		);
 	}
+}
+
+/**
+ * Reports whether a result read failed only because `/glasses/result.json` was
+ * not visible yet, the transient file-visibility lag we retry through. Matching
+ * is restricted to not-found signals so genuine failures (invalid result shape,
+ * permission errors, and other read errors) are never mistaken for a missing
+ * file and are surfaced without needless retries.
+ */
+export function isResultFileNotFound(error: Error): boolean {
+	return /enoent|not found|no such file|does not exist/i.test(error.message);
 }
