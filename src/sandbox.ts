@@ -138,7 +138,10 @@ export class SandboxManager {
 		const outcome = await handle;
 		this.dispatchEvents(parser.finish(), callbacks);
 		if (outcome.timedOut) throw new Error("Sandbox runner timed out.");
-		return this.readResult(sandbox);
+		if (outcome.exitCode !== 0) {
+			throw new Error(`Sandbox runner exited with code ${outcome.exitCode}.`);
+		}
+		return this.readResultWithRetry(sandbox);
 	}
 
 	async reattachRunner(
@@ -159,7 +162,10 @@ export class SandboxManager {
 		);
 		this.dispatchEvents(parser.finish(), callbacks);
 		if (outcome.timedOut) throw new Error("Reattached sandbox runner timed out.");
-		return this.readResult(sandbox);
+		if (outcome.exitCode !== 0) {
+			throw new Error(`Reattached sandbox runner exited with code ${outcome.exitCode}.`);
+		}
+		return this.readResultWithRetry(sandbox);
 	}
 
 	async destroy(sandboxId: string): Promise<void> {
@@ -185,6 +191,21 @@ export class SandboxManager {
 	private async readResult(sandbox: Sandbox): Promise<RunnerResult> {
 		const raw = await sandbox.files.read("/glasses/result.json");
 		return parseRunnerResult(Buffer.from(raw).toString("utf8"));
+	}
+
+	private async readResultWithRetry(sandbox: Sandbox): Promise<RunnerResult> {
+		for (let attempt = 0; attempt < 3; attempt += 1) {
+			try {
+				return await this.readResult(sandbox);
+			} catch (error) {
+				const notFound =
+					error instanceof Error &&
+					/error|result\.json|not found|no such file/i.test(error.message);
+				if (!notFound || attempt === 2) throw error;
+				await new Promise((resolve) => setTimeout(resolve, 200 * (attempt + 1)));
+			}
+		}
+		throw new Error("Worker runner result was not produced.");
 	}
 
 	private dispatchEvents(events: RunnerEvent[], callbacks: RunnerCallbacks): void {
