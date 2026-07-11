@@ -53,7 +53,7 @@ Copilot instruction discovery remains enabled.
 A partial unique index and claim query permit one running worker per
 `(conversation, repository)`. Different repositories may be claimed
 concurrently. Worker sandboxes have a 15-minute idle timeout and are explicitly
-destroyed in `finally`.
+destroyed only after the changes are pushed or checkpointed.
 
 Worker completion is stored transactionally with a synthetic `worker_result`
 main turn. That serialized main turn produces the coherent Telegram response.
@@ -69,6 +69,12 @@ results. On startup, running jobs are reattached through Railway SDK v3
 explicitly failed (and worker failure is queued through the main session);
 repository edits are never silently retried.
 
+After the Copilot session finishes, the runner commits any remaining working
+tree changes and pushes the current branch with a one-command authentication
+header. A failed push is captured as a named Railway checkpoint and retried once
+without starting another Copilot session. If delivery still fails, the
+checkpoint remains durable and is requeued after the gateway restarts.
+
 Postgres schema changes are additive `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`
 operations in `Database.initialize()`, preserving early deployments. Telegram
 message IDs are unique for webhook deduplication.
@@ -83,8 +89,9 @@ files are handled by Copilot.
 Repositories must be strict `owner/repository` identifiers. The Telegram
 allowlist is enforced before persistence. `COPILOT_GITHUB_TOKEN` is passed only
 as sandbox environment configuration (also as `GH_TOKEN` for private clones);
-it is not logged, included in prompts, or passed through per-exec command
-strings.
+it is not logged or included in prompts. Git clone and push receive it through
+ephemeral process environment configuration, so it is not stored in repository
+configuration or Railway checkpoints.
 
 Devin is deliberately deferred and is not registered as a working backend.
 Railway Sandboxes and the Copilot SDK are preview/beta dependencies and may

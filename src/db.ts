@@ -310,6 +310,38 @@ export class Database {
 		);
 	}
 
+	async requeueWorkerDelivery(input: {
+		job: Job;
+		checkpointName: string;
+		workerOutput: string;
+		workerBranch: string;
+	}): Promise<void> {
+		const metadata = {
+			...input.job.metadata,
+			deliveryOnly: true,
+			checkpointName: input.checkpointName,
+			workerOutput: input.workerOutput,
+			workerBranch: input.workerBranch,
+		};
+		await this.pool.query(
+			`UPDATE jobs SET status = 'pending', result = NULL, error = NULL,
+				sandbox_id = NULL, exec_session_name = NULL, claimed_at = NULL,
+				metadata = $2::jsonb, updated_at = NOW()
+			WHERE id = $1 AND status = 'running'`,
+			[input.job.id, JSON.stringify(metadata)],
+		);
+	}
+
+	async requeueFailedWorkerDeliveries(): Promise<void> {
+		await this.pool.query(
+			`UPDATE jobs SET status = 'pending', result = NULL, error = NULL,
+				sandbox_id = NULL, exec_session_name = NULL, claimed_at = NULL, updated_at = NOW()
+			WHERE kind = 'worker' AND status = 'failed'
+				AND metadata->>'deliveryOnly' = 'true'
+				AND metadata->>'checkpointName' IS NOT NULL`,
+		);
+	}
+
 	async completeMainJob(input: {
 		job: Job;
 		output: string;
@@ -376,7 +408,12 @@ export class Database {
 		try {
 			await client.query("BEGIN");
 			const { rowCount: completed } = await client.query(
-				`UPDATE jobs SET status = $2, result = $3, error = $4, updated_at = NOW()
+				`UPDATE jobs SET status = $2, result = $3, error = $4,
+					metadata = CASE WHEN $2 = 'done'
+						THEN metadata - 'deliveryOnly' - 'checkpointName' - 'workerOutput' - 'workerBranch'
+						ELSE metadata
+					END,
+					updated_at = NOW()
 				WHERE id = $1 AND status = 'running'`,
 				[input.job.id, input.status, input.result, input.error],
 			);

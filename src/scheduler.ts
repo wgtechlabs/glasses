@@ -40,6 +40,7 @@ export class Scheduler {
 	) {}
 
 	async start(): Promise<void> {
+		await this.db.requeueFailedWorkerDeliveries();
 		await this.recoverRunningJobs();
 		this.timer = setInterval(() => this.kick(), this.config.schedulerPollMs);
 		this.timer.unref();
@@ -197,6 +198,14 @@ export class Scheduler {
 		recovered: boolean,
 	): Promise<void> {
 		let sandboxId = job.sandboxId;
+		let destroySandbox = true;
+		const deliveryOnly = job.metadata.deliveryOnly === true;
+		const checkpointName =
+			typeof job.metadata.checkpointName === "string" ? job.metadata.checkpointName : null;
+		const workerBranch =
+			typeof job.metadata.workerBranch === "string"
+				? job.metadata.workerBranch
+				: `glasses/${job.id}`;
 		try {
 			if (!job.repository) throw new Error("Worker repository is missing.");
 			let result: RunnerResult;
@@ -210,7 +219,13 @@ export class Scheduler {
 					this.config.jobTimeoutSeconds,
 				);
 			} else {
-				sandboxId = await this.sandbox.createWorker(this.config.copilotGithubToken);
+				if (deliveryOnly && !checkpointName) {
+					throw new Error("Worker delivery retry has no checkpoint.");
+				}
+				sandboxId =
+					deliveryOnly && checkpointName
+						? await this.sandbox.restoreWorker(this.config.copilotGithubToken, checkpointName)
+						: await this.sandbox.createWorker(this.config.copilotGithubToken);
 				await this.db.setJobExecution(job.id, sandboxId);
 				const input: RunnerInput = {
 					version: 1,
@@ -223,18 +238,69 @@ export class Scheduler {
 					transcript: [],
 					workerSummaries: [],
 					repository: job.repository,
+					workerBranch,
+					deliveryOnly,
 				};
 				result = await this.sandbox.runRunner(sandboxId, input, this.config.jobTimeoutSeconds, {
 					onExecSession: (name) => this.db.setJobExecSession(job.id, name),
 				});
 			}
 			if (!result.ok) throw new Error(result.error ?? "Worker runner failed.");
+			if (!result.delivery || result.delivery.status === "failed") {
+				const deliveryError = this.safeError(
+					result.delivery?.error ?? "Legacy worker result requires delivery.",
+				);
+				if (deliveryOnly && checkpointName) {
+					destroySandbox = true;
+					const output =
+						typeof job.metadata.workerOutput === "string"
+							? job.metadata.workerOutput
+							: "Worker changes were completed.";
+					await this.db.finishWorkerAndEnqueueResult({
+						job,
+						status: "failed",
+						result: `${output}\n\nDelivery is still pending. The changes remain saved in Railway checkpoint \`${checkpointName}\` and will retry after the gateway restarts.`,
+						error: deliveryError,
+					});
+					return;
+				}
+				if (!sandboxId) throw new Error(deliveryError);
+				destroySandbox = false;
+				const savedCheckpoint = await this.sandbox.checkpoint(sandboxId, `worker-${job.id}`);
+				await this.db.requeueWorkerDelivery({
+					job,
+					checkpointName: savedCheckpoint,
+					workerOutput: result.output,
+					workerBranch,
+				});
+				destroySandbox = true;
+				return;
+			}
+			const output =
+				deliveryOnly && typeof job.metadata.workerOutput === "string"
+					? job.metadata.workerOutput
+					: result.output;
+			const deliveryNote =
+				result.delivery.status === "pushed"
+					? `\n\nChanges pushed to \`${result.delivery.branch}\` at \`${result.delivery.commit}\`.`
+					: "";
+			if (checkpointName) {
+				try {
+					await this.sandbox.deleteCheckpoint(checkpointName);
+				} catch (error) {
+					logger.warn("Delivered worker checkpoint cleanup failed", {
+						jobId: job.id,
+						reason: error instanceof Error ? error.name : "unknown",
+					});
+				}
+			}
 			await this.db.finishWorkerAndEnqueueResult({
 				job,
 				status: "done",
-				result: result.output,
+				result: `${output}${deliveryNote}`,
 				error: null,
 			});
+			destroySandbox = true;
 		} catch (error) {
 			await this.db.finishWorkerAndEnqueueResult({
 				job,
@@ -243,7 +309,7 @@ export class Scheduler {
 				error: this.safeError(error),
 			});
 		} finally {
-			if (sandboxId) await this.sandbox.destroy(sandboxId);
+			if (sandboxId && destroySandbox) await this.sandbox.destroy(sandboxId);
 		}
 	}
 

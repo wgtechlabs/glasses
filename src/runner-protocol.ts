@@ -21,11 +21,20 @@ export interface RunnerInput {
 	transcript: TranscriptEntry[];
 	workerSummaries: WorkerSummary[];
 	repository?: string;
+	workerBranch?: string;
+	deliveryOnly?: boolean;
 }
 
 export interface Delegation {
 	repository: string;
 	task: string;
+}
+
+export interface WorkerDelivery {
+	status: "not_needed" | "pushed" | "failed";
+	branch: string | null;
+	commit: string | null;
+	error: string | null;
 }
 
 export interface RunnerResult {
@@ -36,6 +45,7 @@ export interface RunnerResult {
 	delegations: Delegation[];
 	error: string | null;
 	recreatedSession: boolean;
+	delivery: WorkerDelivery | null;
 }
 
 export type RunnerEvent =
@@ -72,6 +82,7 @@ export function parseRunnerResult(value: string | unknown): RunnerResult {
 	const parsed = typeof value === "string" ? (JSON.parse(value) as unknown) : value;
 	if (!parsed || typeof parsed !== "object") throw new Error("Runner result is not an object.");
 	const result = parsed as Record<string, unknown>;
+	if (!("delivery" in result)) result.delivery = null;
 	if (
 		result.version !== 1 ||
 		typeof result.ok !== "boolean" ||
@@ -79,7 +90,8 @@ export function parseRunnerResult(value: string | unknown): RunnerResult {
 		(result.sessionId !== null && typeof result.sessionId !== "string") ||
 		!Array.isArray(result.delegations) ||
 		(result.error !== null && typeof result.error !== "string") ||
-		typeof result.recreatedSession !== "boolean"
+		typeof result.recreatedSession !== "boolean" ||
+		!isWorkerDelivery(result.delivery)
 	) {
 		throw new Error("Runner result has an invalid shape.");
 	}
@@ -94,6 +106,18 @@ export function parseRunnerResult(value: string | unknown): RunnerResult {
 		}
 	}
 	return parsed as RunnerResult;
+}
+
+function isWorkerDelivery(value: unknown): boolean {
+	if (value === null) return true;
+	if (!value || typeof value !== "object") return false;
+	const delivery = value as Record<string, unknown>;
+	return (
+		["not_needed", "pushed", "failed"].includes(String(delivery.status)) &&
+		(delivery.branch === null || typeof delivery.branch === "string") &&
+		(delivery.commit === null || typeof delivery.commit === "string") &&
+		(delivery.error === null || typeof delivery.error === "string")
+	);
 }
 
 export class JsonLineParser {

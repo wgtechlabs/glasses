@@ -25,13 +25,30 @@ describe("runner protocol", () => {
 			delegations: [{ repository: "wgtechlabs/glasses", task: "Fix tests" }],
 			error: null,
 			recreatedSession: false,
+			delivery: null,
 		});
 		expect(result.delegations[0]?.repository).toBe("wgtechlabs/glasses");
+		const { delivery: _delivery, ...legacyResult } = result;
+		expect(parseRunnerResult(legacyResult).delivery).toBeNull();
+		expect(
+			parseRunnerResult({
+				...result,
+				delivery: {
+					status: "pushed",
+					branch: "feature/fix",
+					commit: "abc123",
+					error: null,
+				},
+			}).delivery?.status,
+		).toBe("pushed");
 		expect(() =>
 			parseRunnerResult({
 				...result,
 				delegations: [{ repository: "owner/repo;env", task: "bad" }],
 			}),
 		).toThrow(/invalid delegation/);
+		expect(() => parseRunnerResult({ ...result, delivery: { status: "lost" } })).toThrow(
+			/invalid shape/,
+		);
 	});
 });

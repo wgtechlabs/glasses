@@ -16,6 +16,7 @@ import type {
 	RunnerInput,
 	RunnerResult,
 	TranscriptEntry,
+	WorkerDelivery,
 	WorkerSummary,
 } from "./runner-protocol";
 
@@ -47,7 +48,8 @@ const MAIN_TOOLS = [
 ] as const;
 
 const WORKER_SYSTEM_MESSAGE = `You are a Glasses repository worker. Complete the delegated task in the
-current repository, validate your changes, and return a concise factual summary. Do not delegate further.`;
+current repository, validate your changes, and return a concise factual summary. Do not delegate further
+or push changes; the harness delivers the finished work after your session.`;
 
 function emit(event: RunnerEvent): void {
 	process.stdout.write(`${JSON.stringify(event)}\n`);
@@ -64,7 +66,9 @@ function validateInput(value: unknown): RunnerInput {
 		(input.sessionId !== null && typeof input.sessionId !== "string") ||
 		typeof input.rehydrate !== "boolean" ||
 		!Array.isArray(input.transcript) ||
-		!Array.isArray(input.workerSummaries)
+		!Array.isArray(input.workerSummaries) ||
+		(input.workerBranch !== undefined && typeof input.workerBranch !== "string") ||
+		(input.deliveryOnly !== undefined && typeof input.deliveryOnly !== "boolean")
 	) {
 		throw new Error("Runner input has an invalid shape.");
 	}
@@ -76,6 +80,12 @@ function validateInput(value: unknown): RunnerInput {
 	}
 	if (input.mode === "worker" && !isValidRepository(String(input.repository))) {
 		throw new Error("Worker repository is invalid.");
+	}
+	if (
+		input.mode === "worker" &&
+		(!input.workerBranch || !/^glasses\/[A-Za-z0-9._-]+$/.test(input.workerBranch))
+	) {
+		throw new Error("Worker branch is invalid.");
 	}
 	return input as unknown as RunnerInput;
 }
@@ -92,26 +102,35 @@ function findCopilotCli(): string {
 	throw new Error("Copilot CLI is not installed in the Railway sandbox.");
 }
 
-function runProcess(command: string, args: string[], env?: NodeJS.ProcessEnv): Promise<void> {
+function runProcess(
+	command: string,
+	args: string[],
+	options: { cwd?: string; env?: NodeJS.ProcessEnv } = {},
+): Promise<string> {
 	return new Promise((resolve, reject) => {
 		const child = spawn(command, args, {
-			env: env ? { ...process.env, ...env } : process.env,
-			stdio: ["ignore", "ignore", "pipe"],
+			cwd: options.cwd,
+			env: options.env ? { ...process.env, ...options.env } : process.env,
+			stdio: ["ignore", "pipe", "pipe"],
 		});
+		let stdout = "";
 		let stderr = "";
+		child.stdout.on("data", (chunk: Buffer) => {
+			if (stdout.length < 20_000) stdout += chunk.toString("utf8");
+		});
 		child.stderr.on("data", (chunk: Buffer) => {
 			if (stderr.length < 4000) stderr += chunk.toString("utf8");
 		});
 		child.once("error", reject);
-		child.once("exit", (code) => {
-			if (code === 0) resolve();
+		child.once("close", (code) => {
+			if (code === 0) resolve(stdout.trim());
 			else
 				reject(new Error(`Process failed with exit code ${code}: ${stderr.trim().slice(0, 1000)}`));
 		});
 	});
 }
 
-async function cloneRepository(repository: string): Promise<string> {
+async function cloneRepository(repository: string, workerBranch: string): Promise<string> {
 	const path = repositoryPath(repository);
 	const gitHubToken = process.env.GH_TOKEN ?? process.env.COPILOT_GITHUB_TOKEN;
 	if (!gitHubToken) throw new Error("GitHub token is unavailable.");
@@ -119,13 +138,68 @@ async function cloneRepository(repository: string): Promise<string> {
 	emit({ type: "lifecycle", stage: "cloning" });
 	emit({ type: "tool", stage: "started", name: "git_clone" });
 	await runProcess("git", ["clone", "--depth=1", `https://github.com/${repository}.git`, path], {
-		GIT_CONFIG_COUNT: "1",
-		GIT_CONFIG_KEY_0: "http.https://github.com/.extraHeader",
-		GIT_CONFIG_VALUE_0: `Authorization: Basic ${Buffer.from(`x-access-token:${gitHubToken}`).toString("base64")}`,
-		GIT_TERMINAL_PROMPT: "0",
+		env: gitAuth(gitHubToken),
 	});
+	await runProcess("git", ["switch", "-c", workerBranch], { cwd: path });
 	emit({ type: "tool", stage: "completed", name: "git_clone" });
 	return path;
+}
+
+function gitAuth(token: string): NodeJS.ProcessEnv {
+	return {
+		GIT_CONFIG_COUNT: "1",
+		GIT_CONFIG_KEY_0: "http.https://github.com/.extraHeader",
+		GIT_CONFIG_VALUE_0: `Authorization: Basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`,
+		GIT_TERMINAL_PROMPT: "0",
+	};
+}
+
+async function deliverWorker(
+	workingDirectory: string,
+	workerBranch: string,
+	initialCommit: string | null,
+): Promise<WorkerDelivery> {
+	const token = process.env.COPILOT_GITHUB_TOKEN ?? process.env.GH_TOKEN;
+	if (!token) throw new Error("GitHub token is unavailable.");
+	try {
+		if (await runProcess("git", ["status", "--porcelain"], { cwd: workingDirectory })) {
+			await runProcess("git", ["add", "-A"], { cwd: workingDirectory });
+			await runProcess(
+				"git",
+				[
+					"-c",
+					"user.name=Copilot App",
+					"-c",
+					"user.email=223556219+Copilot@users.noreply.github.com",
+					"commit",
+					"-m",
+					"🔧 update: apply delegated changes",
+				],
+				{ cwd: workingDirectory },
+			);
+		}
+		const commit = await runProcess("git", ["rev-parse", "HEAD"], { cwd: workingDirectory });
+		if (initialCommit === commit) {
+			return { status: "not_needed", branch: null, commit, error: null };
+		}
+		let branch = await runProcess("git", ["branch", "--show-current"], { cwd: workingDirectory });
+		if (!branch) {
+			await runProcess("git", ["switch", "-C", workerBranch], { cwd: workingDirectory });
+			branch = workerBranch;
+		}
+		await runProcess("git", ["push", "origin", `HEAD:refs/heads/${branch}`], {
+			cwd: workingDirectory,
+			env: gitAuth(token),
+		});
+		return { status: "pushed", branch, commit, error: null };
+	} catch (error) {
+		return {
+			status: "failed",
+			branch: null,
+			commit: null,
+			error: error instanceof Error ? error.message : "Worker delivery failed.",
+		};
+	}
 }
 
 function recoveryPrompt(
@@ -254,8 +328,31 @@ async function execute(input: RunnerInput): Promise<RunnerResult> {
 	emit({ type: "lifecycle", stage: "started" });
 	const delegations: Delegation[] = [];
 	const workingDirectory =
-		input.mode === "worker" ? await cloneRepository(input.repository as string) : "/glasses/main";
+		input.mode === "worker"
+			? input.deliveryOnly
+				? repositoryPath(input.repository as string)
+				: await cloneRepository(input.repository as string, input.workerBranch as string)
+			: "/glasses/main";
 	await mkdir(workingDirectory, { recursive: true });
+	const initialCommit =
+		input.mode === "worker" && !input.deliveryOnly
+			? await runProcess("git", ["rev-parse", "HEAD"], { cwd: workingDirectory })
+			: null;
+
+	if (input.mode === "worker" && input.deliveryOnly) {
+		const delivery = await deliverWorker(workingDirectory, input.workerBranch as string, null);
+		emit({ type: "lifecycle", stage: delivery.status === "failed" ? "failed" : "completed" });
+		return {
+			version: 1,
+			ok: true,
+			output: "",
+			sessionId: null,
+			delegations,
+			error: null,
+			recreatedSession: false,
+			delivery,
+		};
+	}
 
 	const cliPath = findCopilotCli();
 	const client = new CopilotClient({
@@ -289,6 +386,10 @@ async function execute(input: RunnerInput): Promise<RunnerResult> {
 				? recoveryPrompt(currentPrompt, input.transcript, input.workerSummaries)
 				: currentPrompt;
 		const response = await session.sendAndWait({ prompt }, 3_500_000);
+		const delivery =
+			input.mode === "worker"
+				? await deliverWorker(workingDirectory, input.workerBranch as string, initialCommit)
+				: null;
 		emit({ type: "lifecycle", stage: "completed" });
 		return {
 			version: 1,
@@ -298,6 +399,7 @@ async function execute(input: RunnerInput): Promise<RunnerResult> {
 			delegations,
 			error: null,
 			recreatedSession,
+			delivery,
 		};
 	} finally {
 		if (session) await session.disconnect().catch(() => undefined);
@@ -324,6 +426,7 @@ async function main(): Promise<void> {
 			delegations: [],
 			error: error instanceof Error ? error.message : "Unknown runner error.",
 			recreatedSession: false,
+			delivery: null,
 		};
 	}
 	await writeFile(resultPath, JSON.stringify(result), { encoding: "utf8", mode: 0o600 });
