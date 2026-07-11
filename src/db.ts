@@ -334,7 +334,8 @@ export class Database {
 
 	async requeueFailedWorkerDeliveries(): Promise<void> {
 		await this.pool.query(
-			`UPDATE jobs SET status = 'pending', error = NULL, claimed_at = NULL, updated_at = NOW()
+			`UPDATE jobs SET status = 'pending', result = NULL, error = NULL,
+				sandbox_id = NULL, exec_session_name = NULL, claimed_at = NULL, updated_at = NOW()
 			WHERE kind = 'worker' AND status = 'failed'
 				AND metadata->>'deliveryOnly' = 'true'
 				AND metadata->>'checkpointName' IS NOT NULL`,

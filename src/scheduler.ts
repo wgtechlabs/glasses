@@ -198,7 +198,7 @@ export class Scheduler {
 		recovered: boolean,
 	): Promise<void> {
 		let sandboxId = job.sandboxId;
-		let destroySandbox = false;
+		let destroySandbox = true;
 		const deliveryOnly = job.metadata.deliveryOnly === true;
 		const checkpointName =
 			typeof job.metadata.checkpointName === "string" ? job.metadata.checkpointName : null;
@@ -265,6 +265,7 @@ export class Scheduler {
 					return;
 				}
 				if (!sandboxId) throw new Error(deliveryError);
+				destroySandbox = false;
 				const savedCheckpoint = await this.sandbox.checkpoint(sandboxId, `worker-${job.id}`);
 				await this.db.requeueWorkerDelivery({
 					job,
@@ -283,7 +284,16 @@ export class Scheduler {
 				result.delivery.status === "pushed"
 					? `\n\nChanges pushed to \`${result.delivery.branch}\` at \`${result.delivery.commit}\`.`
 					: "";
-			if (checkpointName) await this.sandbox.deleteCheckpoint(checkpointName);
+			if (checkpointName) {
+				try {
+					await this.sandbox.deleteCheckpoint(checkpointName);
+				} catch (error) {
+					logger.warn("Delivered worker checkpoint cleanup failed", {
+						jobId: job.id,
+						reason: error instanceof Error ? error.name : "unknown",
+					});
+				}
+			}
 			await this.db.finishWorkerAndEnqueueResult({
 				job,
 				status: "done",

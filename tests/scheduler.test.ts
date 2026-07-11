@@ -210,6 +210,76 @@ describe("scheduler eligibility", () => {
 		expect(destroy).not.toHaveBeenCalled();
 	});
 
+	it("destroys a worker when execution fails before checkpointing", async () => {
+		const finish = mock(async () => undefined);
+		const destroy = mock(async () => undefined);
+		const db = {
+			getInstructions: mock(async () => null),
+			setJobExecution: mock(async () => undefined),
+			setJobExecSession: mock(async () => undefined),
+			finishWorkerAndEnqueueResult: finish,
+		} as unknown as Database;
+		const sandbox = {
+			createWorker: mock(async () => "sbx-worker"),
+			runRunner: mock(async () => {
+				throw new Error("runner failed");
+			}),
+			destroy,
+		} as unknown as SandboxManager;
+		const scheduler = new Scheduler(db, sandbox, { send: async () => undefined }, config);
+
+		await processWorker(scheduler, job("job-runner-failed", "owner/repo", 1, "running"), {
+			id: "conv",
+		} as Conversation);
+
+		expect(finish).toHaveBeenCalledWith(expect.objectContaining({ status: "failed" }));
+		expect(destroy).toHaveBeenCalledWith("sbx-worker");
+	});
+
+	it("keeps successful delivery when checkpoint cleanup fails", async () => {
+		const finish = mock(async () => undefined);
+		const db = {
+			getInstructions: mock(async () => null),
+			setJobExecution: mock(async () => undefined),
+			setJobExecSession: mock(async () => undefined),
+			finishWorkerAndEnqueueResult: finish,
+		} as unknown as Database;
+		const sandbox = {
+			restoreWorker: mock(async () => "sbx-restored"),
+			runRunner: mock(async () => ({
+				version: 1,
+				ok: true,
+				output: "",
+				sessionId: null,
+				delegations: [],
+				error: null,
+				recreatedSession: false,
+				delivery: {
+					status: "pushed",
+					branch: "feature/fix",
+					commit: "abc123",
+					error: null,
+				},
+			})),
+			deleteCheckpoint: mock(async () => {
+				throw new Error("cleanup unavailable");
+			}),
+			destroy: mock(async () => undefined),
+		} as unknown as SandboxManager;
+		const scheduler = new Scheduler(db, sandbox, { send: async () => undefined }, config);
+		const retry = job("job-cleanup", "owner/repo", 1, "running");
+		retry.metadata = {
+			deliveryOnly: true,
+			checkpointName: "worker-job-cleanup",
+			workerOutput: "Fixed it.",
+			workerBranch: "glasses/job-cleanup",
+		};
+
+		await processWorker(scheduler, retry, { id: "conv" } as Conversation);
+
+		expect(finish).toHaveBeenCalledWith(expect.objectContaining({ status: "done" }));
+	});
+
 	it("restores a checkpoint and retries delivery without rerunning the worker task", async () => {
 		const finish = mock(async () => undefined);
 		const runRunner = mock(async (_sandboxId, input) => ({

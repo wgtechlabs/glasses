@@ -122,7 +122,7 @@ function runProcess(
 			if (stderr.length < 4000) stderr += chunk.toString("utf8");
 		});
 		child.once("error", reject);
-		child.once("exit", (code) => {
+		child.once("close", (code) => {
 			if (code === 0) resolve(stdout.trim());
 			else
 				reject(new Error(`Process failed with exit code ${code}: ${stderr.trim().slice(0, 1000)}`));
