@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { isResultFileNotFound } from "../src/sandbox";
+import { isNodeBinaryPath, isResultFileNotFound } from "../src/sandbox";
 
 describe("isResultFileNotFound", () => {
 	it("treats missing-file signals as the transient not-found condition", () => {
@@ -22,6 +22,30 @@ describe("isResultFileNotFound", () => {
 			"Unexpected token < in JSON at position 0",
 		]) {
 			expect(isResultFileNotFound(new Error(message))).toBe(false);
+		}
+	});
+});
+
+describe("isNodeBinaryPath", () => {
+	it("accepts genuine Node binary paths", () => {
+		for (const execPath of [
+			"/usr/local/bin/node",
+			"/usr/bin/node",
+			"/home/runner/.nvm/versions/node/v22.20.1/bin/node",
+			"node",
+		]) {
+			expect(isNodeBinaryPath(execPath)).toBe(true);
+		}
+	});
+
+	it("rejects non-Node runtimes such as Bun", () => {
+		for (const execPath of [
+			"/usr/local/bin/bun",
+			"/home/runner/.bun/bin/bun",
+			"/usr/bin/deno",
+			"/usr/local/bin/ts-node",
+		]) {
+			expect(isNodeBinaryPath(execPath)).toBe(false);
 		}
 	});
 });

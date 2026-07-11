@@ -1,7 +1,7 @@
 import { createReadStream, existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Sandbox } from "railway";
 import { logger } from "./logger";
@@ -292,7 +292,13 @@ export class SandboxManager {
 	private findNodeBinary(): string {
 		const configured = process.env.GLASSES_NODE_PATH;
 		if (configured && existsSync(configured)) return configured;
-		if (existsSync(process.execPath)) return process.execPath;
+		// Reuse the current runtime only when it is genuinely Node. Under Bun
+		// (the dev/test scripts) process.execPath points at the Bun binary, and
+		// shipping that into the sandbox as /glasses/node would run the runner on
+		// Bun instead of Node, defeating the point of an explicit Node runtime.
+		if (isNodeBinaryPath(process.execPath) && existsSync(process.execPath)) {
+			return process.execPath;
+		}
 		for (const candidate of ["/usr/local/bin/node", "/usr/bin/node"]) {
 			if (existsSync(candidate)) return candidate;
 		}
@@ -309,4 +315,15 @@ export class SandboxManager {
  */
 export function isResultFileNotFound(error: Error): boolean {
 	return /enoent|not found|no such file|does not exist/i.test(error.message);
+}
+
+/**
+ * Reports whether `execPath` points at a Node.js binary. `process.execPath`
+ * only names `node` when this process actually runs under Node; under Bun (the
+ * `dev`/`test` scripts) or another runtime it names that runtime's binary
+ * (e.g. `bun`), which must never be uploaded into the sandbox as the Node
+ * runtime. Matching on the executable name keeps the check runtime-agnostic.
+ */
+export function isNodeBinaryPath(execPath: string): boolean {
+	return basename(execPath) === "node";
 }
