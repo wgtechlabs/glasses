@@ -121,11 +121,19 @@ export class SandboxManager {
 				}),
 			);
 		}
+		if (!(await sandbox.files.exists("/glasses/node"))) {
+			const nodeBinary = this.findNodeBinary();
+			writes.push(
+				sandbox.files.write("/glasses/node", () => createReadStream(nodeBinary), {
+					mode: 0o755,
+				}),
+			);
+		}
 		await Promise.all(writes);
 
 		const parser = new JsonLineParser();
 		const handle = sandbox.exec(
-			"node /glasses/runner.js /glasses/input.json /glasses/result.json",
+			"/glasses/node /glasses/runner.js /glasses/input.json /glasses/result.json",
 			{
 				timeoutSec,
 				onStdout: (chunk) => this.dispatchEvents(parser.push(chunk), callbacks),
@@ -242,6 +250,16 @@ export class SandboxManager {
 		throw new Error(
 			"Linux Copilot CLI package is unavailable. Set GLASSES_COPILOT_CLI_PATH explicitly.",
 		);
+	}
+
+	private findNodeBinary(): string {
+		const configured = process.env.GLASSES_NODE_PATH;
+		if (configured && existsSync(configured)) return configured;
+		if (existsSync(process.execPath)) return process.execPath;
+		for (const candidate of ["/usr/local/bin/node", "/usr/bin/node"]) {
+			if (existsSync(candidate)) return candidate;
+		}
+		throw new Error("Node.js binary is unavailable. Set GLASSES_NODE_PATH explicitly.");
 	}
 }
 
