@@ -18,8 +18,11 @@ export interface RunnerCallbacks {
 	onEvent?: (event: RunnerEvent) => Promise<void> | void;
 }
 
+const KEEPALIVE_INTERVAL_MS = 4 * 60 * 1000;
+
 export class SandboxManager {
 	private readonly runnerPath: string;
+	private runnerBundle: Buffer | null = null;
 
 	constructor(
 		private railwayToken: string,
@@ -105,15 +108,21 @@ export class SandboxManager {
 		callbacks: RunnerCallbacks = {},
 	): Promise<RunnerResult> {
 		const sandbox = await this.connect(sandboxId);
-		const runner = await readFile(this.runnerPath);
-		if (await sandbox.files.exists("/glasses/result.json")) {
+		const keepAlive = this.startKeepAlive(sandbox, sandboxId);
+		const runner = await this.loadRunnerBundle();
+		const [hasResult, hasCopilotCli, hasNodeBinary] = await Promise.all([
+			sandbox.files.exists("/glasses/result.json"),
+			sandbox.files.exists("/glasses/copilot-cli"),
+			sandbox.files.exists("/glasses/node"),
+		]);
+		if (hasResult) {
 			await sandbox.files.remove("/glasses/result.json");
 		}
 		const writes: Promise<void>[] = [
 			sandbox.files.write("/glasses/runner.js", runner, { mode: 0o755 }),
 			sandbox.files.write("/glasses/input.json", JSON.stringify(input), { mode: 0o600 }),
 		];
-		if (!(await sandbox.files.exists("/glasses/copilot-cli"))) {
+		if (!hasCopilotCli) {
 			const copilotCli = this.findCopilotBinary();
 			writes.push(
 				sandbox.files.write("/glasses/copilot-cli", () => createReadStream(copilotCli), {
@@ -121,7 +130,7 @@ export class SandboxManager {
 				}),
 			);
 		}
-		if (!(await sandbox.files.exists("/glasses/node"))) {
+		if (!hasNodeBinary) {
 			const nodeBinary = this.findNodeBinary();
 			writes.push(
 				sandbox.files.write("/glasses/node", () => createReadStream(nodeBinary), {
@@ -143,13 +152,17 @@ export class SandboxManager {
 		);
 		const sessionName = await handle.sessionName;
 		await callbacks.onExecSession?.(sessionName);
-		const outcome = await handle;
-		this.dispatchEvents(parser.finish(), callbacks);
-		if (outcome.timedOut) throw new Error("Sandbox runner timed out.");
-		if (outcome.exitCode !== 0) {
-			throw new Error(`Sandbox runner exited with code ${outcome.exitCode}.`);
+		try {
+			const outcome = await handle;
+			this.dispatchEvents(parser.finish(), callbacks);
+			if (outcome.timedOut) throw new Error("Sandbox runner timed out.");
+			if (outcome.exitCode !== 0) {
+				throw new Error(`Sandbox runner exited with code ${outcome.exitCode}.`);
+			}
+			return this.readResultWithRetry(sandbox);
+		} finally {
+			clearInterval(keepAlive);
 		}
-		return this.readResultWithRetry(sandbox);
 	}
 
 	async reattachRunner(
@@ -159,21 +172,26 @@ export class SandboxManager {
 		callbacks: RunnerCallbacks = {},
 	): Promise<RunnerResult> {
 		const sandbox = await this.connect(sandboxId);
+		const keepAlive = this.startKeepAlive(sandbox, sandboxId);
 		const parser = new JsonLineParser();
-		const outcome = await sandbox.exec(
-			{ sessionName },
-			{
-				timeoutSec,
-				onStdout: (chunk) => this.dispatchEvents(parser.push(chunk), callbacks),
-				onStderr: () => undefined,
-			},
-		);
-		this.dispatchEvents(parser.finish(), callbacks);
-		if (outcome.timedOut) throw new Error("Reattached sandbox runner timed out.");
-		if (outcome.exitCode !== 0) {
-			throw new Error(`Reattached sandbox runner exited with code ${outcome.exitCode}.`);
+		try {
+			const outcome = await sandbox.exec(
+				{ sessionName },
+				{
+					timeoutSec,
+					onStdout: (chunk) => this.dispatchEvents(parser.push(chunk), callbacks),
+					onStderr: () => undefined,
+				},
+			);
+			this.dispatchEvents(parser.finish(), callbacks);
+			if (outcome.timedOut) throw new Error("Reattached sandbox runner timed out.");
+			if (outcome.exitCode !== 0) {
+				throw new Error(`Reattached sandbox runner exited with code ${outcome.exitCode}.`);
+			}
+			return this.readResultWithRetry(sandbox);
+		} finally {
+			clearInterval(keepAlive);
 		}
-		return this.readResultWithRetry(sandbox);
 	}
 
 	async destroy(sandboxId: string): Promise<void> {
@@ -231,6 +249,25 @@ export class SandboxManager {
 					});
 				});
 		}
+	}
+
+	private startKeepAlive(sandbox: Sandbox, sandboxId: string): NodeJS.Timeout {
+		const timer = setInterval(() => {
+			void sandbox.refresh().catch((error) => {
+				logger.warn("Sandbox keepalive refresh failed", {
+					sandboxId,
+					reason: error instanceof Error ? error.name : "unknown",
+				});
+			});
+		}, KEEPALIVE_INTERVAL_MS);
+		timer.unref();
+		return timer;
+	}
+
+	private async loadRunnerBundle(): Promise<Buffer> {
+		if (this.runnerBundle) return this.runnerBundle;
+		this.runnerBundle = await readFile(this.runnerPath);
+		return this.runnerBundle;
 	}
 
 	private findCopilotBinary(): string {
