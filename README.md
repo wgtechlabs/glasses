@@ -92,13 +92,15 @@ See [`.env.example`](./.env.example) for the full list:
 | `TELEGRAM_ALLOWED_USER_ID` | Only this Telegram user id can talk to the bot |
 | `PORT` | HTTP port (default `3000`) |
 | `LOG_LEVEL` | `debug` \| `info` \| `warn` \| `error` |
-| `COPILOT_GITHUB_TOKEN` | GitHub token for Copilot CLI auth inside sandboxes |
+| `COPILOT_GITHUB_TOKEN` | GitHub token for Copilot auth and worker Git delivery |
 | `MEMORY_MESSAGE_LIMIT` | Recent main-chat messages restored after sandbox loss |
 | `MEMORY_WORKER_LIMIT` | Recent worker summaries restored after sandbox loss |
 
 `COPILOT_GITHUB_TOKEN` is injected into the isolated sandbox environment for
 Copilot and authenticated Git operations (including private repositories). It
-is never placed in prompts or command strings.
+needs repository **Contents: read/write** and **Pull requests: read/write**.
+Worker pushes use a one-command Git authentication header; credentials are not
+stored in the clone or checkpoint.
 
 > Railway Sandboxes and `@github/copilot-sdk` are preview/beta APIs. Pin and
 > review dependency updates because their APIs may change.

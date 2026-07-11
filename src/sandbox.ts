@@ -37,21 +37,55 @@ export class SandboxManager {
 		return this.create(authToken, 15);
 	}
 
-	private async create(authToken: string, idleTimeoutMinutes: number): Promise<string> {
-		const sandbox = await Sandbox.create({
+	async restoreWorker(authToken: string, checkpointName: string): Promise<string> {
+		return this.create(authToken, 15, checkpointName);
+	}
+
+	private async create(
+		authToken: string,
+		idleTimeoutMinutes: number,
+		checkpointName?: string,
+	): Promise<string> {
+		const options = {
 			token: this.railwayToken,
 			environmentId: this.railwayEnvironmentId,
 			idleTimeoutMinutes,
-			networkIsolation: "ISOLATED",
+			networkIsolation: "ISOLATED" as const,
 			env: {
 				COPILOT_GITHUB_TOKEN: authToken,
 				GH_TOKEN: authToken,
 				COPILOT_AUTO_UPDATE: "false",
 				COPILOT_CLI_PATH: "/glasses/copilot-cli",
 			},
-		});
+		};
+		const sandbox = checkpointName
+			? await Sandbox.create(checkpointName, options)
+			: await Sandbox.create(options);
 		logger.info("Sandbox created", { sandboxId: sandbox.id });
 		return sandbox.id;
+	}
+
+	async checkpoint(sandboxId: string, name: string): Promise<string> {
+		const existing = await this.findCheckpoint(name);
+		if (existing) return existing.key;
+		const checkpoint = await (await this.connect(sandboxId)).checkpoint(name);
+		logger.info("Sandbox checkpoint created", { sandboxId, checkpoint: checkpoint.key });
+		return checkpoint.key;
+	}
+
+	async deleteCheckpoint(name: string): Promise<void> {
+		const options = { token: this.railwayToken, environmentId: this.railwayEnvironmentId };
+		const checkpoint = await this.findCheckpoint(name);
+		if (checkpoint) await Sandbox.deleteCheckpoint(checkpoint.id, options);
+	}
+
+	private async findCheckpoint(name: string) {
+		return (
+			await Sandbox.checkpoints({
+				token: this.railwayToken,
+				environmentId: this.railwayEnvironmentId,
+			})
+		).find((item) => item.key === name);
 	}
 
 	async isAlive(sandboxId: string): Promise<boolean> {
