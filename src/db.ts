@@ -99,6 +99,7 @@ export class Database {
 		chatId: string;
 		telegramMessageId: number;
 		prompt: string;
+		agent: "copilot" | "devin";
 	}): Promise<{ conversation: Conversation; job: Job | null }> {
 		const client = await this.pool.connect();
 		try {
@@ -107,7 +108,7 @@ export class Database {
 			const conversationId = id("conv");
 			await client.query(
 				`UPDATE conversations SET
-					chat_id = $2, conversation_kind = 'main', agent = 'copilot', repository = '',
+					chat_id = $2, conversation_kind = 'main', agent = $4, repository = '',
 					model = NULL, sandbox_id = NULL, session_id = NULL, copilot_session_id = NULL,
 					last_activity_at = $3, updated_at = $3
 				WHERE id = (
@@ -122,18 +123,18 @@ export class Database {
 					WHERE channel = 'telegram' AND user_id = $1 AND chat_id = $2
 						AND conversation_kind = 'main'
 				)`,
-				[input.userId, input.chatId, now],
+				[input.userId, input.chatId, now, input.agent],
 			);
 			const { rows: conversations } = await client.query(
 				`INSERT INTO conversations (
 					id, channel, user_id, chat_id, conversation_kind, agent, repository,
 					model, sandbox_id, session_id, copilot_session_id, last_activity_at, created_at, updated_at
-				) VALUES ($1, 'telegram', $2, $3, 'main', 'copilot', '', NULL, NULL, NULL, NULL, $4, $4, $4)
+				) VALUES ($1, 'telegram', $2, $3, 'main', $5, '', NULL, NULL, NULL, NULL, $4, $4, $4)
 				ON CONFLICT (channel, user_id, chat_id)
 					WHERE conversation_kind = 'main' AND chat_id IS NOT NULL
 				DO UPDATE SET last_activity_at = EXCLUDED.last_activity_at, updated_at = EXCLUDED.updated_at
 				RETURNING *`,
-				[conversationId, input.userId, input.chatId, now],
+				[conversationId, input.userId, input.chatId, now, input.agent],
 			);
 			const conversation = rowToConversation(conversations[0]);
 			const externalId = `${input.chatId}:${input.telegramMessageId}`;

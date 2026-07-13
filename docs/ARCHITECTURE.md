@@ -26,8 +26,10 @@ inside the main sandbox with conversation-level model selection (default
 ## Main sessions
 
 There is one main conversation for `(channel, user_id, chat_id)`. Plain
-Telegram messages create it automatically and enqueue a `main_turn`; `/new` no
-longer provisions anything. Main turns are claimed with
+Telegram messages create it automatically and enqueue a `main_turn`. If only
+one CLI credential is configured, that CLI is selected automatically; if both
+credentials are configured and no default is set, Telegram prompts once for
+`/cli copilot|devin` and persists that default. Main turns are claimed with
 `FOR UPDATE SKIP LOCKED` and serialized per conversation.
 
 The main runner exposes `delegate_task(repository, task)` plus a small

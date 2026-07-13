@@ -29,8 +29,11 @@ You (Telegram/Discord/WhatsApp)
 ```
 
 - Send a plain message containing a repository and task. Glasses automatically
-  creates or resumes one main session (Copilot by default) for that Telegram
-  user/chat.
+  creates or resumes one main session for that Telegram user/chat.
+- If only one CLI credential is configured, Glasses auto-selects it as the
+  default (`copilot` or `devin`). If both are configured and no default is set,
+  Glasses asks once and remembers the user's choice.
+- `/cli [copilot|devin]` shows or updates the default CLI for future turns.
 - The main session can call native `delegate_task(owner/repo, task)`. Every task
   gets a fresh worker sandbox; different repositories can run concurrently and
   work for the same repository is serialized.

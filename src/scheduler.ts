@@ -81,8 +81,11 @@ export class Scheduler {
 				sessionId: conversation.copilotSessionId,
 			};
 		}
+		if (conversation.agent === "copilot" && !this.config.copilotGithubToken) {
+			throw new Error("Copilot is selected but COPILOT_GITHUB_TOKEN/GH_TOKEN is not configured.");
+		}
 		const sandboxId = await this.sandbox.createMain(
-			conversation.agent === "copilot" ? this.config.copilotGithubToken : undefined,
+			conversation.agent === "copilot" ? (this.config.copilotGithubToken ?? undefined) : undefined,
 		);
 		await this.db.updateConversationRuntime(conversation.id, sandboxId, null);
 		return { sandboxId, recreated: true, sessionId: null };
@@ -224,6 +227,9 @@ export class Scheduler {
 				if (deliveryOnly && !checkpointName) {
 					throw new Error("Worker delivery retry has no checkpoint.");
 				}
+				if (!this.config.copilotGithubToken) {
+					throw new Error("Worker execution requires COPILOT_GITHUB_TOKEN/GH_TOKEN.");
+				}
 				sandboxId =
 					deliveryOnly && checkpointName
 						? await this.sandbox.restoreWorker(this.config.copilotGithubToken, checkpointName)
@@ -355,6 +361,8 @@ export class Scheduler {
 
 	private safeError(error: unknown): string {
 		const raw = error instanceof Error ? error.message : "Unknown orchestration error.";
-		return raw.replaceAll(this.config.copilotGithubToken, "[REDACTED]").slice(0, 4000);
+		return this.config.copilotGithubToken
+			? raw.replaceAll(this.config.copilotGithubToken, "[REDACTED]").slice(0, 4000)
+			: raw.slice(0, 4000);
 	}
 }

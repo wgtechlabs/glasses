@@ -62,7 +62,8 @@ export interface Config {
 	databaseUrl: string;
 	telegramBotToken: string;
 	telegramAllowedUserId: string;
-	copilotGithubToken: string;
+	copilotGithubToken: string | null;
+	devinCredentialsBase64: string | null;
 	memoryMessageLimit: number;
 	memoryWorkerLimit: number;
 	schedulerPollMs: number;

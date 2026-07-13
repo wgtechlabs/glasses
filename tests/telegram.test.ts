@@ -57,13 +57,49 @@ describe("Telegram control chat", () => {
 			chatId: "456",
 			telegramMessageId: 1,
 			prompt: "Please fix wgtechlabs/glasses",
+			agent: "copilot",
 		});
 		expect(scheduler.kick).toHaveBeenCalled();
 		expect(sent).toEqual([]);
 	});
 
+	it("prompts for /cli choice when both CLIs are available and no default exists", async () => {
+		const { db, scheduler, sent } = setup();
+		const both = new TelegramChannel(
+			"123",
+			db,
+			scheduler,
+			{
+				send: mock(async (_chatId, text) => {
+					sent.push(text);
+				}),
+			},
+			{
+				copilot: true,
+				devin: true,
+			},
+		);
+		await both.handleWebhook(payload("Please fix wgtechlabs/glasses"));
+		expect(db.enqueueTelegramTurn).not.toHaveBeenCalled();
+		expect(sent[0]).toContain("/cli copilot");
+	});
+
 	it("configures /new session settings", async () => {
-		const { channel, db, scheduler, sent } = setup();
+		const { db, scheduler, sent } = setup();
+		const channel = new TelegramChannel(
+			"123",
+			db,
+			scheduler,
+			{
+				send: mock(async (_chatId, text) => {
+					sent.push(text);
+				}),
+			},
+			{
+				copilot: true,
+				devin: true,
+			},
+		);
 		await channel.handleWebhook(payload("/new owner/repo devin"));
 		expect(db.configureMainConversation).toHaveBeenCalledWith({
 			channel: "telegram",
@@ -75,6 +111,38 @@ describe("Telegram control chat", () => {
 		});
 		expect(scheduler.invalidateMainSandbox).toHaveBeenCalledWith("sbx-main-old");
 		expect(sent[0]).toContain("Session configured");
+	});
+
+	it("shows and updates /cli defaults", async () => {
+		const { channel, db, sent } = setup({
+			getMainConversation: mock(async () => ({
+				id: "conv-1",
+				channel: "telegram",
+				userId: "123",
+				chatId: "456",
+				agent: "devin",
+				repository: "owner/repo",
+				model: "swe-1.7",
+				sandboxId: null,
+				copilotSessionId: null,
+				lastActivityAt: new Date(),
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			})),
+		});
+
+		await channel.handleWebhook(payload("/cli", 2));
+		await channel.handleWebhook(payload("/cli copilot", 3));
+
+		expect(sent[0]).toContain("Active CLI: devin");
+		expect(db.configureMainConversation).toHaveBeenCalledWith({
+			channel: "telegram",
+			userId: "123",
+			chatId: "456",
+			agent: "copilot",
+			repository: "owner/repo",
+			model: null,
+		});
 	});
 
 	it("shows and updates /model", async () => {
