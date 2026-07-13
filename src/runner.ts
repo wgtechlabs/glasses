@@ -331,7 +331,7 @@ async function ensureDevinReady(repository: string): Promise<string> {
 		[
 			"command -v devin >/dev/null 2>&1 || curl -fsSL https://cli.devin.ai/install.sh | bash",
 			'if [ -n "${DEVIN_CREDENTIALS_BASE64:-}" ]; then mkdir -p "$HOME/.local/share/devin" && printf "%s" "$DEVIN_CREDENTIALS_BASE64" | base64 -d > "$HOME/.local/share/devin/credentials.toml" && chmod 600 "$HOME/.local/share/devin/credentials.toml"; fi',
-			"devin auth status >/dev/null 2>&1",
+			'devin auth status >/dev/null || { echo "Devin authentication check failed. Provide valid credentials via DEVIN_CREDENTIALS_BASE64." >&2; exit 1; }',
 		].join(" && "),
 	]);
 	emit({ type: "tool", stage: "completed", name: "devin_setup" });

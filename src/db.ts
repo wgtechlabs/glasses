@@ -193,38 +193,55 @@ export class Database {
 		agent: "copilot" | "devin";
 		repository: string;
 		model: string | null;
-	}): Promise<Conversation> {
-		const now = new Date();
-		const conversationId = id("conv");
-		const { rows } = await this.pool.query(
-			`INSERT INTO conversations (
-				id, channel, user_id, chat_id, conversation_kind, agent, repository, model,
-				sandbox_id, session_id, copilot_session_id, last_activity_at, created_at, updated_at
-			) VALUES ($1, $2, $3, $4, 'main', $5, $6, $7, NULL, NULL, NULL, $8, $8, $8)
-			ON CONFLICT (channel, user_id, chat_id)
-				WHERE conversation_kind = 'main' AND chat_id IS NOT NULL
-			DO UPDATE SET
-				agent = EXCLUDED.agent,
-				repository = EXCLUDED.repository,
-				model = EXCLUDED.model,
-				sandbox_id = NULL,
-				session_id = NULL,
-				copilot_session_id = NULL,
-				last_activity_at = EXCLUDED.last_activity_at,
-				updated_at = EXCLUDED.updated_at
-			RETURNING *`,
-			[
-				conversationId,
-				input.channel,
-				input.userId,
-				input.chatId,
-				input.agent,
-				input.repository,
-				input.model,
-				now,
-			],
-		);
-		return rowToConversation(rows[0]);
+	}): Promise<{ conversation: Conversation; previousSandboxId: string | null }> {
+		const client = await this.pool.connect();
+		try {
+			await client.query("BEGIN");
+			const now = new Date();
+			const conversationId = id("conv");
+			const { rows: existing } = await client.query(
+				`SELECT sandbox_id FROM conversations
+				WHERE channel = $1 AND user_id = $2 AND chat_id = $3 AND conversation_kind = 'main'
+				FOR UPDATE`,
+				[input.channel, input.userId, input.chatId],
+			);
+			const previousSandboxId = (existing[0]?.sandbox_id as string | null) ?? null;
+			const { rows } = await client.query(
+				`INSERT INTO conversations (
+					id, channel, user_id, chat_id, conversation_kind, agent, repository, model,
+					sandbox_id, session_id, copilot_session_id, last_activity_at, created_at, updated_at
+				) VALUES ($1, $2, $3, $4, 'main', $5, $6, $7, NULL, NULL, NULL, $8, $8, $8)
+				ON CONFLICT (channel, user_id, chat_id)
+					WHERE conversation_kind = 'main' AND chat_id IS NOT NULL
+				DO UPDATE SET
+					agent = EXCLUDED.agent,
+					repository = EXCLUDED.repository,
+					model = EXCLUDED.model,
+					sandbox_id = NULL,
+					session_id = NULL,
+					copilot_session_id = NULL,
+					last_activity_at = EXCLUDED.last_activity_at,
+					updated_at = EXCLUDED.updated_at
+				RETURNING *`,
+				[
+					conversationId,
+					input.channel,
+					input.userId,
+					input.chatId,
+					input.agent,
+					input.repository,
+					input.model,
+					now,
+				],
+			);
+			await client.query("COMMIT");
+			return { conversation: rowToConversation(rows[0]), previousSandboxId };
+		} catch (error) {
+			await client.query("ROLLBACK");
+			throw error;
+		} finally {
+			client.release();
+		}
 	}
 
 	async updateConversationRuntime(

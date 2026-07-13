@@ -29,7 +29,8 @@ You (Telegram/Discord/WhatsApp)
 ```
 
 - Send a plain message containing a repository and task. Glasses automatically
-  creates or resumes one main Copilot session for that Telegram user/chat.
+  creates or resumes one main session (Copilot by default) for that Telegram
+  user/chat.
 - The main session can call native `delegate_task(owner/repo, task)`. Every task
   gets a fresh worker sandbox; different repositories can run concurrently and
   work for the same repository is serialized.
@@ -39,7 +40,6 @@ You (Telegram/Discord/WhatsApp)
 - `/status` shows agent/model/repository plus queued/running main turns and workers.
 - `/instructions`, `/instructions set <text>`, and `/instructions clear` manage
   DB-backed global instructions used by main and worker sessions.
-- `/new` is compatibility-only; it tells users to send the task naturally.
 
 ## 📊 Status
 

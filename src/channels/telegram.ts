@@ -299,7 +299,7 @@ export class TelegramChannel implements ChannelLike {
 			return;
 		}
 		const model = modelArg ?? (agent === "devin" ? "swe-1.7" : null);
-		await this.db.configureMainConversation({
+		const { previousSandboxId } = await this.db.configureMainConversation({
 			channel: "telegram",
 			userId,
 			chatId,
@@ -307,6 +307,7 @@ export class TelegramChannel implements ChannelLike {
 			repository: repositoryArg,
 			model,
 		});
+		await this.scheduler.invalidateMainSandbox(previousSandboxId);
 		await this.sender.send(
 			chatId,
 			`Session configured: ${agent} on ${repositoryArg}${model ? ` (model ${model})` : ""}.`,
@@ -354,7 +355,7 @@ export class TelegramChannel implements ChannelLike {
 			await this.sender.send(chatId, "Model is invalid. Use letters, numbers, '.', '_' or '-'.");
 			return;
 		}
-		await this.db.configureMainConversation({
+		const { previousSandboxId } = await this.db.configureMainConversation({
 			channel: "telegram",
 			userId,
 			chatId,
@@ -362,6 +363,7 @@ export class TelegramChannel implements ChannelLike {
 			repository: conversation.repository,
 			model: nextModel,
 		});
+		await this.scheduler.invalidateMainSandbox(previousSandboxId);
 		await this.sender.send(chatId, `Model set to ${nextModel}.`);
 	}
 

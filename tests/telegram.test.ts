@@ -29,10 +29,13 @@ function setup(overrides: Record<string, unknown> = {}) {
 		getStatus: mock(async () => ({ conversation: null })),
 		getMainConversation: mock(async () => null),
 		configureMainConversation: mock(async () => ({
-			id: "conv-1",
-			agent: "copilot",
-			repository: "wgtechlabs/glasses",
-			model: null,
+			conversation: {
+				id: "conv-1",
+				agent: "copilot",
+				repository: "wgtechlabs/glasses",
+				model: null,
+			},
+			previousSandboxId: "sbx-main-old",
 		})),
 		getInstructions: mock(async () => null),
 		changeInstructions: mock(async () => ["sbx-old"]),
@@ -60,7 +63,7 @@ describe("Telegram control chat", () => {
 	});
 
 	it("configures /new session settings", async () => {
-		const { channel, db, sent } = setup();
+		const { channel, db, scheduler, sent } = setup();
 		await channel.handleWebhook(payload("/new owner/repo devin"));
 		expect(db.configureMainConversation).toHaveBeenCalledWith({
 			channel: "telegram",
@@ -70,6 +73,7 @@ describe("Telegram control chat", () => {
 			repository: "owner/repo",
 			model: "swe-1.7",
 		});
+		expect(scheduler.invalidateMainSandbox).toHaveBeenCalledWith("sbx-main-old");
 		expect(sent[0]).toContain("Session configured");
 	});
 
