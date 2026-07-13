@@ -1,0 +1,5 @@
+# Fake base64 test fixture ("devin-creds") for DEVIN_CREDENTIALS_BASE64 in the
+# config loader test. Not a real secret; Gitleaks' generic-api-key rule flags
+# the credential-like assignment. The line also carries an inline gitleaks:allow
+# for future/squashed scans; this fingerprint covers the original introduction.
+96b14648a8342912c9460b37cad99b2c334f6a76:tests/config.test.ts:generic-api-key:35

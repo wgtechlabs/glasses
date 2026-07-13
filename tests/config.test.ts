@@ -32,7 +32,7 @@ describe("loadConfig", () => {
 		const { COPILOT_GITHUB_TOKEN, ...incomplete } = validEnv;
 		const config = loadConfig({
 			...incomplete,
-			DEVIN_CREDENTIALS_BASE64: "ZGV2aW4tY3JlZHM=",
+			DEVIN_CREDENTIALS_BASE64: "ZGV2aW4tY3JlZHM=", // gitleaks:allow (fake base64 test fixture, not a real secret)
 		} as NodeJS.ProcessEnv);
 		expect(config.copilotGithubToken).toBeNull();
 		expect(config.devinCredentialsBase64).toBe("ZGV2aW4tY3JlZHM=");
