@@ -1,7 +1,7 @@
 import { createReadStream, existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Sandbox } from "railway";
 import { logger } from "./logger";
@@ -18,8 +18,11 @@ export interface RunnerCallbacks {
 	onEvent?: (event: RunnerEvent) => Promise<void> | void;
 }
 
+const KEEPALIVE_INTERVAL_MS = 4 * 60 * 1000;
+
 export class SandboxManager {
 	private readonly runnerPath: string;
+	private runnerBundle: Buffer | null = null;
 
 	constructor(
 		private railwayToken: string,
@@ -105,18 +108,32 @@ export class SandboxManager {
 		callbacks: RunnerCallbacks = {},
 	): Promise<RunnerResult> {
 		const sandbox = await this.connect(sandboxId);
-		const runner = await readFile(this.runnerPath);
-		if (await sandbox.files.exists("/glasses/result.json")) {
+		const keepAlive = this.startKeepAlive(sandbox, sandboxId);
+		const runner = await this.loadRunnerBundle();
+		const [hasResult, hasCopilotCli, hasNodeBinary] = await Promise.all([
+			sandbox.files.exists("/glasses/result.json"),
+			sandbox.files.exists("/glasses/copilot-cli"),
+			sandbox.files.exists("/glasses/node"),
+		]);
+		if (hasResult) {
 			await sandbox.files.remove("/glasses/result.json");
 		}
 		const writes: Promise<void>[] = [
 			sandbox.files.write("/glasses/runner.js", runner, { mode: 0o755 }),
 			sandbox.files.write("/glasses/input.json", JSON.stringify(input), { mode: 0o600 }),
 		];
-		if (!(await sandbox.files.exists("/glasses/copilot-cli"))) {
+		if (!hasCopilotCli) {
 			const copilotCli = this.findCopilotBinary();
 			writes.push(
 				sandbox.files.write("/glasses/copilot-cli", () => createReadStream(copilotCli), {
+					mode: 0o755,
+				}),
+			);
+		}
+		if (!hasNodeBinary) {
+			const nodeBinary = this.findNodeBinary();
+			writes.push(
+				sandbox.files.write("/glasses/node", () => createReadStream(nodeBinary), {
 					mode: 0o755,
 				}),
 			);
@@ -125,7 +142,7 @@ export class SandboxManager {
 
 		const parser = new JsonLineParser();
 		const handle = sandbox.exec(
-			"node /glasses/runner.js /glasses/input.json /glasses/result.json",
+			"/glasses/node /glasses/runner.js /glasses/input.json /glasses/result.json",
 			{
 				timeoutSec,
 				onStdout: (chunk) => this.dispatchEvents(parser.push(chunk), callbacks),
@@ -135,13 +152,17 @@ export class SandboxManager {
 		);
 		const sessionName = await handle.sessionName;
 		await callbacks.onExecSession?.(sessionName);
-		const outcome = await handle;
-		this.dispatchEvents(parser.finish(), callbacks);
-		if (outcome.timedOut) throw new Error("Sandbox runner timed out.");
-		if (outcome.exitCode !== 0) {
-			throw new Error(`Sandbox runner exited with code ${outcome.exitCode}.`);
+		try {
+			const outcome = await handle;
+			this.dispatchEvents(parser.finish(), callbacks);
+			if (outcome.timedOut) throw new Error("Sandbox runner timed out.");
+			if (outcome.exitCode !== 0) {
+				throw new Error(`Sandbox runner exited with code ${outcome.exitCode}.`);
+			}
+			return this.readResultWithRetry(sandbox);
+		} finally {
+			clearInterval(keepAlive);
 		}
-		return this.readResultWithRetry(sandbox);
 	}
 
 	async reattachRunner(
@@ -151,21 +172,26 @@ export class SandboxManager {
 		callbacks: RunnerCallbacks = {},
 	): Promise<RunnerResult> {
 		const sandbox = await this.connect(sandboxId);
+		const keepAlive = this.startKeepAlive(sandbox, sandboxId);
 		const parser = new JsonLineParser();
-		const outcome = await sandbox.exec(
-			{ sessionName },
-			{
-				timeoutSec,
-				onStdout: (chunk) => this.dispatchEvents(parser.push(chunk), callbacks),
-				onStderr: () => undefined,
-			},
-		);
-		this.dispatchEvents(parser.finish(), callbacks);
-		if (outcome.timedOut) throw new Error("Reattached sandbox runner timed out.");
-		if (outcome.exitCode !== 0) {
-			throw new Error(`Reattached sandbox runner exited with code ${outcome.exitCode}.`);
+		try {
+			const outcome = await sandbox.exec(
+				{ sessionName },
+				{
+					timeoutSec,
+					onStdout: (chunk) => this.dispatchEvents(parser.push(chunk), callbacks),
+					onStderr: () => undefined,
+				},
+			);
+			this.dispatchEvents(parser.finish(), callbacks);
+			if (outcome.timedOut) throw new Error("Reattached sandbox runner timed out.");
+			if (outcome.exitCode !== 0) {
+				throw new Error(`Reattached sandbox runner exited with code ${outcome.exitCode}.`);
+			}
+			return this.readResultWithRetry(sandbox);
+		} finally {
+			clearInterval(keepAlive);
 		}
-		return this.readResultWithRetry(sandbox);
 	}
 
 	async destroy(sandboxId: string): Promise<void> {
@@ -225,6 +251,25 @@ export class SandboxManager {
 		}
 	}
 
+	private startKeepAlive(sandbox: Sandbox, sandboxId: string): NodeJS.Timeout {
+		const timer = setInterval(() => {
+			void sandbox.refresh().catch((error) => {
+				logger.warn("Sandbox keepalive refresh failed", {
+					sandboxId,
+					reason: error instanceof Error ? error.name : "unknown",
+				});
+			});
+		}, KEEPALIVE_INTERVAL_MS);
+		timer.unref();
+		return timer;
+	}
+
+	private async loadRunnerBundle(): Promise<Buffer> {
+		if (this.runnerBundle) return this.runnerBundle;
+		this.runnerBundle = await readFile(this.runnerPath);
+		return this.runnerBundle;
+	}
+
 	private findCopilotBinary(): string {
 		const configured = process.env.GLASSES_COPILOT_CLI_PATH;
 		if (configured && existsSync(configured)) return configured;
@@ -243,6 +288,22 @@ export class SandboxManager {
 			"Linux Copilot CLI package is unavailable. Set GLASSES_COPILOT_CLI_PATH explicitly.",
 		);
 	}
+
+	private findNodeBinary(): string {
+		const configured = process.env.GLASSES_NODE_PATH;
+		if (configured && existsSync(configured)) return configured;
+		// Reuse the current runtime only when it is genuinely Node. Under Bun
+		// (the dev/test scripts) process.execPath points at the Bun binary, and
+		// shipping that into the sandbox as /glasses/node would run the runner on
+		// Bun instead of Node, defeating the point of an explicit Node runtime.
+		if (isNodeBinaryPath(process.execPath) && existsSync(process.execPath)) {
+			return process.execPath;
+		}
+		for (const candidate of ["/usr/local/bin/node", "/usr/bin/node"]) {
+			if (existsSync(candidate)) return candidate;
+		}
+		throw new Error("Node.js binary is unavailable. Set GLASSES_NODE_PATH explicitly.");
+	}
 }
 
 /**
@@ -254,4 +315,15 @@ export class SandboxManager {
  */
 export function isResultFileNotFound(error: Error): boolean {
 	return /enoent|not found|no such file|does not exist/i.test(error.message);
+}
+
+/**
+ * Reports whether `execPath` points at a Node.js binary. `process.execPath`
+ * only names `node` when this process actually runs under Node; under Bun (the
+ * `dev`/`test` scripts) or another runtime it names that runtime's binary
+ * (e.g. `bun`), which must never be uploaded into the sandbox as the Node
+ * runtime. Matching on the executable name keeps the check runtime-agnostic.
+ */
+export function isNodeBinaryPath(execPath: string): boolean {
+	return basename(execPath) === "node";
 }
