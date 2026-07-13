@@ -1,25 +1,15 @@
 import { describe, expect, it, mock } from "bun:test";
-import type { AgentRegistry } from "../../src/agents/registry";
-import { TelegramChannel } from "../../src/channels/telegram";
-import type { Database } from "../../src/db";
-import type { SandboxManager } from "../../src/sandbox";
+import { TelegramMessenger } from "../../src/channels/telegram";
 
-describe("TelegramChannel", () => {
-	it("registers the webhook and bot commands", async () => {
+describe("TelegramMessenger", () => {
+	it("registers a protected webhook and current commands", async () => {
 		const originalFetch = globalThis.fetch;
 		const fetchMock = mock(async () => new Response(null, { status: 200 }));
 		globalThis.fetch = fetchMock as typeof fetch;
 
 		try {
-			const telegram = new TelegramChannel(
-				"bot_token",
-				"123456789",
-				{} as Database,
-				{} as AgentRegistry,
-				{} as SandboxManager,
-			);
-
-			await telegram.registerWebhook("glasses-production.up.railway.app");
+			const messenger = new TelegramMessenger("bot_token");
+			await messenger.registerWebhook("glasses-production.up.railway.app");
 
 			expect(fetchMock).toHaveBeenCalledTimes(2);
 			expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.telegram.org/botbot_token/setWebhook");
@@ -28,14 +18,11 @@ describe("TelegramChannel", () => {
 				url: "https://glasses-production.up.railway.app/webhook/telegram",
 				secret_token: expect.stringMatching(/^[a-f0-9]{64}$/),
 			});
-			expect(telegram.isValidWebhookSecret(body.secret_token)).toBe(true);
-			expect(telegram.isValidWebhookSecret("wrong")).toBe(false);
-			expect(fetchMock.mock.calls[1]?.[0]).toBe(
-				"https://api.telegram.org/botbot_token/setMyCommands",
-			);
+			expect(messenger.isValidWebhookSecret(body.secret_token)).toBe(true);
+			expect(messenger.isValidWebhookSecret("wrong")).toBe(false);
 			expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
 				commands: expect.arrayContaining([
-					{ command: "delete", description: "Delete the active sandbox session" },
+					{ command: "instructions", description: "Show or update global instructions" },
 				]),
 			});
 		} finally {
@@ -43,49 +30,56 @@ describe("TelegramChannel", () => {
 		}
 	});
 
-	it("deletes the active sandbox session", async () => {
+	it("streams generated text through Telegram drafts", async () => {
 		const originalFetch = globalThis.fetch;
-		globalThis.fetch = mock(async () => new Response(null, { status: 200 })) as typeof fetch;
-		const conversation = {
-			id: "conv_1",
-			channel: "telegram" as const,
-			userId: "123456789",
-			agent: "copilot" as const,
-			repository: "wgtechlabs/glasses",
-			sandboxId: "sbx_1",
-			sessionId: "session_1",
-			createdAt: new Date(),
-			updatedAt: new Date(),
-		};
-		const db = {
-			getLatestConversationForUser: mock(async () => conversation),
-			saveConversation: mock(async () => {}),
-		} as unknown as Database;
-		const sandbox = {
-			destroy: mock(async () => {}),
-		} as unknown as SandboxManager;
+		const fetchMock = mock(async () => new Response(null, { status: 200 }));
+		globalThis.fetch = fetchMock as typeof fetch;
 
 		try {
-			const telegram = new TelegramChannel(
-				"bot_token",
-				"123456789",
-				db,
-				{} as AgentRegistry,
-				sandbox,
-			);
-			await telegram.handleWebhook({
-				message: {
-					message_id: 1,
-					from: { id: 123456789 },
-					chat: { id: 123456789 },
-					text: "/delete",
-				},
-			});
+			const messenger = new TelegramMessenger("bot_token");
+			const stream = messenger.startStreaming("123");
+			stream.update("**Hello** `world`");
+			await new Promise<void>((resolve) => setImmediate(resolve));
+			stream.stop();
 
-			expect(sandbox.destroy).toHaveBeenCalledWith("sbx_1");
-			expect(db.saveConversation).toHaveBeenCalledWith(
-				expect.objectContaining({ sandboxId: null, sessionId: null }),
+			expect(fetchMock.mock.calls[0]?.[0]).toBe(
+				"https://api.telegram.org/botbot_token/sendMessageDraft",
 			);
+			const initial = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+			const update = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+			expect(initial).toEqual({
+				chat_id: "123",
+				draft_id: expect.any(Number),
+				text: "",
+				parse_mode: "HTML",
+			});
+			expect(update).toEqual({
+				chat_id: "123",
+				draft_id: initial.draft_id,
+				text: "<b>Hello</b> <code>world</code>",
+				parse_mode: "HTML",
+			});
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	it("formats final replies for Telegram", async () => {
+		const originalFetch = globalThis.fetch;
+		const fetchMock = mock(async () => new Response(null, { status: 200 }));
+		globalThis.fetch = fetchMock as typeof fetch;
+
+		try {
+			await new TelegramMessenger("bot_token").send(
+				"123",
+				'# Result\n- **Ready** & <safe>\n- [Docs](https://example.com/?q="x")\n\n| State | Count |\n|---|---|\n| Open | 4 |\n| Merged | 77 |\n\n```ts\nconst ok = true;\n```',
+			);
+
+			expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+				chat_id: "123",
+				text: '<b>Result</b>\n• <b>Ready</b> &amp; &lt;safe&gt;\n• <a href="https://example.com/?q=&quot;x&quot;">Docs</a>\n\n<b>State:</b> Open • <b>Count:</b> 4\n<b>State:</b> Merged • <b>Count:</b> 77\n\n<pre>const ok = true;\n</pre>',
+				parse_mode: "HTML",
+			});
 		} finally {
 			globalThis.fetch = originalFetch;
 		}

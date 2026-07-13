@@ -7,32 +7,29 @@ const validEnv = {
 	DATABASE_URL: "postgresql://localhost/glasses",
 	TELEGRAM_BOT_TOKEN: "bot_token",
 	TELEGRAM_ALLOWED_USER_ID: "123456789",
+	COPILOT_GITHUB_TOKEN: "copilot_token",
 };
 
 describe("loadConfig", () => {
-	it("loads valid config with defaults applied", () => {
+	it("loads orchestration defaults", () => {
 		const config = loadConfig(validEnv as NodeJS.ProcessEnv);
-
-		expect(config.railwayApiToken).toBe("rw_token");
-		expect(config.telegramAllowedUserId).toBe("123456789");
-		expect(config.port).toBe(3000);
-		expect(config.logLevel).toBe("info");
+		expect(config.memoryMessageLimit).toBe(20);
+		expect(config.schedulerWorkerConcurrency).toBe(4);
+		expect(config.copilotGithubToken).toBe("copilot_token");
 	});
 
-	it("respects PORT and LOG_LEVEL overrides", () => {
+	it("accepts bounded orchestration overrides", () => {
 		const config = loadConfig({
 			...validEnv,
-			PORT: "8080",
-			LOG_LEVEL: "debug",
+			MEMORY_MESSAGE_LIMIT: "8",
+			SCHEDULER_WORKER_CONCURRENCY: "2",
 		} as NodeJS.ProcessEnv);
-
-		expect(config.port).toBe(8080);
-		expect(config.logLevel).toBe("debug");
+		expect(config.memoryMessageLimit).toBe(8);
+		expect(config.schedulerWorkerConcurrency).toBe(2);
 	});
 
-	it("throws a descriptive error when a required variable is missing", () => {
-		const { TELEGRAM_BOT_TOKEN, ...incomplete } = validEnv;
-
-		expect(() => loadConfig(incomplete as NodeJS.ProcessEnv)).toThrow(/telegramBotToken/);
+	it("requires sandbox Copilot authentication", () => {
+		const { COPILOT_GITHUB_TOKEN, ...incomplete } = validEnv;
+		expect(() => loadConfig(incomplete as NodeJS.ProcessEnv)).toThrow(/copilotGithubToken/);
 	});
 });

@@ -16,9 +16,8 @@ ARG NODE_VERSION=22-alpine
 ARG BUN_VERSION=1.3.9
 
 FROM node:${NODE_VERSION} AS base
-RUN apk update && apk upgrade --no-cache && \
-    apk add --no-cache dumb-init && \
-    rm -rf /var/cache/apk/*
+RUN apk upgrade --no-cache && \
+    apk add --no-cache dumb-init ca-certificates
 WORKDIR /usr/src/app
 
 FROM oven/bun:${BUN_VERSION}-alpine AS bun
