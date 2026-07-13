@@ -26,8 +26,7 @@ strict owner/repository and a complete task. You do not edit repositories in thi
 Use the read-only GitHub and web tools for information gathering. Delegate only work that requires a
 repository checkout, edits, tests, builds, or deep local analysis.
 Never delegate PR, issue, workflow, repository metadata, code search, or public web lookups.
-Report delegation acceptance accurately and never claim a worker has completed before a worker result is provided.
-GitHub Copilot workers are available. Devin is deferred and must not be presented as working.`;
+Report delegation acceptance accurately and never claim a worker has completed before a worker result is provided.`;
 
 const GITHUB_TOOLS = [
 	"get_file_contents",
@@ -51,6 +50,8 @@ const WORKER_SYSTEM_MESSAGE = `You are a Glasses repository worker. Complete the
 current repository, validate your changes, and return a concise factual summary. Do not delegate further
 or push changes; the harness delivers the finished work after your session.`;
 
+const MODEL_PATTERN = /^[A-Za-z0-9._-]+$/;
+
 function emit(event: RunnerEvent): void {
 	process.stdout.write(`${JSON.stringify(event)}\n`);
 }
@@ -61,7 +62,9 @@ function validateInput(value: unknown): RunnerInput {
 	if (
 		input.version !== 1 ||
 		(input.mode !== "main" && input.mode !== "worker") ||
+		(input.agent !== "copilot" && input.agent !== "devin") ||
 		typeof input.prompt !== "string" ||
+		(input.model !== null && typeof input.model !== "string") ||
 		typeof input.globalInstructions !== "string" ||
 		(input.sessionId !== null && typeof input.sessionId !== "string") ||
 		typeof input.rehydrate !== "boolean" ||
@@ -80,6 +83,16 @@ function validateInput(value: unknown): RunnerInput {
 	}
 	if (input.mode === "worker" && !isValidRepository(String(input.repository))) {
 		throw new Error("Worker repository is invalid.");
+	}
+	if (
+		input.mode === "main" &&
+		input.agent === "devin" &&
+		!isValidRepository(String(input.repository))
+	) {
+		throw new Error("Main Devin repository is invalid.");
+	}
+	if (input.model !== null && !MODEL_PATTERN.test(input.model)) {
+		throw new Error("Model is invalid.");
 	}
 	if (
 		input.mode === "worker" &&
@@ -255,7 +268,7 @@ function sessionConfig(
 		skipCustomInstructions: input.mode !== "worker",
 	};
 
-	if (input.mode === "main") {
+	if (input.mode === "main" && input.agent === "copilot") {
 		const gitHubToken = process.env.GH_TOKEN ?? process.env.COPILOT_GITHUB_TOKEN;
 		if (!gitHubToken) throw new Error("GitHub token is unavailable.");
 		config.availableTools = [...MAIN_TOOLS];
@@ -309,6 +322,50 @@ function sessionConfig(
 	return config;
 }
 
+async function ensureDevinReady(repository: string): Promise<string> {
+	const repoPath = repositoryPath(repository);
+	await mkdir("/workspace", { recursive: true });
+	emit({ type: "tool", stage: "started", name: "devin_setup" });
+	await runProcess("sh", [
+		"-lc",
+		[
+			"command -v devin >/dev/null 2>&1 || curl -fsSL https://cli.devin.ai/install.sh | bash",
+			'if [ -n "${DEVIN_CREDENTIALS_BASE64:-}" ]; then mkdir -p "$HOME/.local/share/devin" && printf "%s" "$DEVIN_CREDENTIALS_BASE64" | base64 -d > "$HOME/.local/share/devin/credentials.toml" && chmod 600 "$HOME/.local/share/devin/credentials.toml"; fi',
+			'devin auth status >/dev/null || { echo "Devin authentication check failed. Provide valid credentials via DEVIN_CREDENTIALS_BASE64." >&2; exit 1; }',
+		].join(" && "),
+	]);
+	emit({ type: "tool", stage: "completed", name: "devin_setup" });
+	emit({ type: "tool", stage: "started", name: "git_clone" });
+	await runProcess("sh", [
+		"-lc",
+		`[ -d "${repoPath}/.git" ] || git clone --depth 1 "https://github.com/${repository}.git" "${repoPath}"`,
+	]);
+	emit({ type: "tool", stage: "completed", name: "git_clone" });
+	return repoPath;
+}
+
+async function runDevinMain(input: RunnerInput): Promise<RunnerResult> {
+	const repository = String(input.repository);
+	const model = input.model ?? "swe-1.7";
+	const workingDirectory = await ensureDevinReady(repository);
+	emit({ type: "lifecycle", stage: "running" });
+	const args = ["-p"];
+	if (input.sessionId) args.push("--continue");
+	args.push("--permission-mode", "bypass", "--model", model, "--", input.prompt);
+	const output = await runProcess("devin", args, { cwd: workingDirectory });
+	emit({ type: "lifecycle", stage: "completed" });
+	return {
+		version: 1,
+		ok: true,
+		output: output || "(no output)",
+		sessionId: "latest",
+		delegations: [],
+		error: null,
+		recreatedSession: false,
+		delivery: null,
+	};
+}
+
 function attachEvents(session: CopilotSession): void {
 	const toolNames = new Map<string, string>();
 	session.on((event) => {
@@ -352,6 +409,10 @@ async function execute(input: RunnerInput): Promise<RunnerResult> {
 			recreatedSession: false,
 			delivery,
 		};
+	}
+
+	if (input.mode === "main" && input.agent === "devin") {
+		return runDevinMain(input);
 	}
 
 	const cliPath = findCopilotCli();

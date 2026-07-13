@@ -28,6 +28,7 @@ export class Database {
 			ALTER TABLE conversations ADD COLUMN IF NOT EXISTS chat_id TEXT;
 			ALTER TABLE conversations ADD COLUMN IF NOT EXISTS conversation_kind TEXT NOT NULL DEFAULT 'main';
 			ALTER TABLE conversations ADD COLUMN IF NOT EXISTS copilot_session_id TEXT;
+			ALTER TABLE conversations ADD COLUMN IF NOT EXISTS model TEXT;
 			ALTER TABLE conversations ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
 			CREATE TABLE IF NOT EXISTS messages (
@@ -98,6 +99,7 @@ export class Database {
 		chatId: string;
 		telegramMessageId: number;
 		prompt: string;
+		agent: "copilot" | "devin";
 	}): Promise<{ conversation: Conversation; job: Job | null }> {
 		const client = await this.pool.connect();
 		try {
@@ -106,8 +108,8 @@ export class Database {
 			const conversationId = id("conv");
 			await client.query(
 				`UPDATE conversations SET
-					chat_id = $2, conversation_kind = 'main', agent = 'copilot', repository = '',
-					sandbox_id = NULL, session_id = NULL, copilot_session_id = NULL,
+					chat_id = $2, conversation_kind = 'main', agent = $4, repository = '',
+					model = NULL, sandbox_id = NULL, session_id = NULL, copilot_session_id = NULL,
 					last_activity_at = $3, updated_at = $3
 				WHERE id = (
 					SELECT id FROM conversations
@@ -121,18 +123,18 @@ export class Database {
 					WHERE channel = 'telegram' AND user_id = $1 AND chat_id = $2
 						AND conversation_kind = 'main'
 				)`,
-				[input.userId, input.chatId, now],
+				[input.userId, input.chatId, now, input.agent],
 			);
 			const { rows: conversations } = await client.query(
 				`INSERT INTO conversations (
 					id, channel, user_id, chat_id, conversation_kind, agent, repository,
-					sandbox_id, session_id, copilot_session_id, last_activity_at, created_at, updated_at
-				) VALUES ($1, 'telegram', $2, $3, 'main', 'copilot', '', NULL, NULL, NULL, $4, $4, $4)
+					model, sandbox_id, session_id, copilot_session_id, last_activity_at, created_at, updated_at
+				) VALUES ($1, 'telegram', $2, $3, 'main', $5, '', NULL, NULL, NULL, NULL, $4, $4, $4)
 				ON CONFLICT (channel, user_id, chat_id)
 					WHERE conversation_kind = 'main' AND chat_id IS NOT NULL
 				DO UPDATE SET last_activity_at = EXCLUDED.last_activity_at, updated_at = EXCLUDED.updated_at
 				RETURNING *`,
-				[conversationId, input.userId, input.chatId, now],
+				[conversationId, input.userId, input.chatId, now, input.agent],
 			);
 			const conversation = rowToConversation(conversations[0]);
 			const externalId = `${input.chatId}:${input.telegramMessageId}`;
@@ -183,6 +185,64 @@ export class Database {
 			[channel, userId, chatId],
 		);
 		return rows[0] ? rowToConversation(rows[0]) : null;
+	}
+
+	async configureMainConversation(input: {
+		channel: string;
+		userId: string;
+		chatId: string;
+		agent: "copilot" | "devin";
+		repository: string;
+		model: string | null;
+	}): Promise<{ conversation: Conversation; previousSandboxId: string | null }> {
+		const client = await this.pool.connect();
+		try {
+			await client.query("BEGIN");
+			const now = new Date();
+			const conversationId = id("conv");
+			const { rows: existing } = await client.query(
+				`SELECT sandbox_id FROM conversations
+				WHERE channel = $1 AND user_id = $2 AND chat_id = $3 AND conversation_kind = 'main'
+				FOR UPDATE`,
+				[input.channel, input.userId, input.chatId],
+			);
+			const previousSandboxId = (existing[0]?.sandbox_id as string | null) ?? null;
+			const { rows } = await client.query(
+				`INSERT INTO conversations (
+					id, channel, user_id, chat_id, conversation_kind, agent, repository, model,
+					sandbox_id, session_id, copilot_session_id, last_activity_at, created_at, updated_at
+				) VALUES ($1, $2, $3, $4, 'main', $5, $6, $7, NULL, NULL, NULL, $8, $8, $8)
+				ON CONFLICT (channel, user_id, chat_id)
+					WHERE conversation_kind = 'main' AND chat_id IS NOT NULL
+				DO UPDATE SET
+					agent = EXCLUDED.agent,
+					repository = EXCLUDED.repository,
+					model = EXCLUDED.model,
+					sandbox_id = NULL,
+					session_id = NULL,
+					copilot_session_id = NULL,
+					last_activity_at = EXCLUDED.last_activity_at,
+					updated_at = EXCLUDED.updated_at
+				RETURNING *`,
+				[
+					conversationId,
+					input.channel,
+					input.userId,
+					input.chatId,
+					input.agent,
+					input.repository,
+					input.model,
+					now,
+				],
+			);
+			await client.query("COMMIT");
+			return { conversation: rowToConversation(rows[0]), previousSandboxId };
+		} catch (error) {
+			await client.query("ROLLBACK");
+			throw error;
+		} finally {
+			client.release();
+		}
 	}
 
 	async updateConversationRuntime(
@@ -576,6 +636,9 @@ function rowToConversation(row: Record<string, unknown>): Conversation {
 		channel: row.channel as Conversation["channel"],
 		userId: row.user_id as string,
 		chatId: (row.chat_id as string) ?? (row.user_id as string),
+		agent: ((row.agent as string) ?? "copilot") as Conversation["agent"],
+		repository: (row.repository as string) ?? "",
+		model: (row.model as string) ?? null,
 		sandboxId: (row.sandbox_id as string) ?? null,
 		copilotSessionId: (row.copilot_session_id as string) ?? (row.session_id as string) ?? null,
 		lastActivityAt: row.last_activity_at as Date,

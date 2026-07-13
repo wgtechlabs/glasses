@@ -14,18 +14,22 @@ Telegram -> gateway -> Postgres jobs -> Railway main sandbox
                                   Railway worker sandbox
 ```
 
-Both sandbox types receive `dist/runner.js`, a JSON input file, and the packaged
-Linux Copilot CLI through `sandbox.files.write`. Worker clones use the sandbox's
-Git binary with authentication passed through process environment configuration.
-Prompts and tasks are never interpolated into shell commands. The runner uses
-`@github/copilot-sdk` without a `model` option, preserving the authenticated
-CLI's default provider/model.
+Both sandbox types receive `dist/runner.js` and an input JSON file. Copilot
+sessions additionally receive the packaged Linux Copilot CLI through
+`sandbox.files.write`. Worker clones use the sandbox's Git binary with
+authentication passed through process environment configuration.
+Prompts and tasks are never interpolated into shell commands. Copilot uses
+`@github/copilot-sdk` in orchestration mode; Devin main sessions use `devin -p`
+inside the main sandbox with conversation-level model selection (default
+`swe-1.7`).
 
 ## Main sessions
 
 There is one main conversation for `(channel, user_id, chat_id)`. Plain
-Telegram messages create it automatically and enqueue a `main_turn`; `/new` no
-longer provisions anything. Main turns are claimed with
+Telegram messages create it automatically and enqueue a `main_turn`. If only
+one CLI credential is configured, that CLI is selected automatically; if both
+credentials are configured and no default is set, Telegram prompts once for
+`/cli copilot|devin` and persists that default. Main turns are claimed with
 `FOR UPDATE SKIP LOCKED` and serialized per conversation.
 
 The main runner exposes `delegate_task(repository, task)` plus a small
@@ -93,6 +97,5 @@ it is not logged or included in prompts. Git clone and push receive it through
 ephemeral process environment configuration, so it is not stored in repository
 configuration or Railway checkpoints.
 
-Devin is deliberately deferred and is not registered as a working backend.
 Railway Sandboxes and the Copilot SDK are preview/beta dependencies and may
 introduce breaking API changes.

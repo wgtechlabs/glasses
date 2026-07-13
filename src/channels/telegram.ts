@@ -1,6 +1,7 @@
 import { createHash, randomInt, timingSafeEqual } from "node:crypto";
 import type { Database } from "../db";
 import { logger } from "../logger";
+import { isValidRepository } from "../repository";
 import type { ChatNotifier, Scheduler } from "../scheduler";
 import type { ChannelLike } from "./types";
 
@@ -88,6 +89,9 @@ export interface TelegramSender {
 	send(chatId: string, text: string): Promise<void>;
 }
 
+const MODEL_PATTERN = /^[A-Za-z0-9._-]+$/;
+type AgentName = "copilot" | "devin";
+
 export class TelegramMessenger implements TelegramSender, ChatNotifier {
 	private readonly webhookSecret: string;
 
@@ -119,6 +123,9 @@ export class TelegramMessenger implements TelegramSender, ChatNotifier {
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					commands: [
+						{ command: "new", description: "Set repository and agent" },
+						{ command: "cli", description: "Show or set the default CLI" },
+						{ command: "model", description: "Show or set the active model" },
 						{ command: "status", description: "Show main session and queued work" },
 						{ command: "instructions", description: "Show or update global instructions" },
 					],
@@ -224,6 +231,10 @@ export class TelegramChannel implements ChannelLike {
 		private db: Database,
 		private scheduler: Scheduler,
 		private sender: TelegramSender,
+		private availableAgents: { copilot: boolean; devin: boolean } = {
+			copilot: true,
+			devin: false,
+		},
 	) {}
 
 	async handleWebhook(payload: unknown): Promise<void> {
@@ -252,10 +263,15 @@ export class TelegramChannel implements ChannelLike {
 		const rawCommand = text.split(/\s+/, 1)[0] ?? "";
 		const command = rawCommand.split("@", 1)[0]?.toLowerCase();
 		if (command === "/new") {
-			await this.sender.send(
-				chatId,
-				"No /new command is needed. Send the repository and task naturally (for example: “Fix owner/repo issue #42”).",
-			);
+			await this.handleNew(chatId, userId, text.slice(rawCommand.length).trim());
+			return;
+		}
+		if (command === "/cli") {
+			await this.handleCli(chatId, userId, text.slice(rawCommand.length).trim());
+			return;
+		}
+		if (command === "/model") {
+			await this.handleModel(chatId, userId, text.slice(rawCommand.length).trim());
 			return;
 		}
 		if (command === "/status") {
@@ -267,14 +283,122 @@ export class TelegramChannel implements ChannelLike {
 			return;
 		}
 
+		const conversation = await this.db.getMainConversation("telegram", userId, chatId);
+		const agent = conversation?.agent ?? this.autoAgent();
+		if (!agent) {
+			await this.sender.send(
+				chatId,
+				this.availableAgents.copilot || this.availableAgents.devin
+					? "Both CLIs are configured. Choose one first with /cli copilot or /cli devin."
+					: "No CLI credentials found. Add COPILOT_GITHUB_TOKEN (or GH_TOKEN) or DEVIN_CREDENTIALS_BASE64.",
+			);
+			return;
+		}
 		const queued = await this.db.enqueueTelegramTurn({
 			userId,
 			chatId,
 			telegramMessageId: message.message_id,
 			prompt: text,
+			agent,
 		});
 		if (!queued.job) return;
 		this.scheduler.kick();
+	}
+
+	private async handleNew(chatId: string, userId: string, args: string): Promise<void> {
+		const [repositoryArg, agentArg, modelArg] = args.split(/\s+/).filter(Boolean);
+		if (!repositoryArg || !isValidRepository(repositoryArg)) {
+			await this.sender.send(chatId, "Usage: /new owner/repository [copilot|devin] [model]");
+			return;
+		}
+		const conversation = await this.db.getMainConversation("telegram", userId, chatId);
+		const agent = this.resolveAgentChoice(agentArg, conversation?.agent ?? null);
+		if (!agent) {
+			await this.sender.send(
+				chatId,
+				"Both CLIs are configured. Specify one: /new owner/repository [copilot|devin] [model], or set a default with /cli.",
+			);
+			return;
+		}
+		if (agentArg && agentArg !== "copilot" && agentArg !== "devin") {
+			await this.sender.send(chatId, 'Agent must be "copilot" or "devin".');
+			return;
+		}
+		if (!this.availableAgents[agent]) {
+			await this.sender.send(
+				chatId,
+				agent === "copilot"
+					? "Copilot credentials are not configured."
+					: "Devin credentials are not configured.",
+			);
+			return;
+		}
+		if (modelArg && !MODEL_PATTERN.test(modelArg)) {
+			await this.sender.send(chatId, "Model is invalid. Use letters, numbers, '.', '_' or '-'.");
+			return;
+		}
+		const model = modelArg ?? (agent === "devin" ? (conversation?.model ?? "swe-1.7") : null);
+		const { previousSandboxId } = await this.db.configureMainConversation({
+			channel: "telegram",
+			userId,
+			chatId,
+			agent,
+			repository: repositoryArg,
+			model,
+		});
+		await this.scheduler.invalidateMainSandbox(previousSandboxId);
+		await this.sender.send(
+			chatId,
+			`Session configured: ${agent} on ${repositoryArg}${model ? ` (model ${model})` : ""}.`,
+		);
+	}
+
+	private async handleCli(chatId: string, userId: string, args: string): Promise<void> {
+		const next = args.trim().toLowerCase();
+		const conversation = await this.db.getMainConversation("telegram", userId, chatId);
+		if (!next) {
+			if (conversation) {
+				await this.sender.send(chatId, `Active CLI: ${conversation.agent}`);
+				return;
+			}
+			const auto = this.autoAgent();
+			if (auto) {
+				await this.sender.send(chatId, `No explicit CLI set. Auto-selection is ${auto}.`);
+				return;
+			}
+			await this.sender.send(
+				chatId,
+				"Both CLIs are configured. Choose with /cli copilot or /cli devin.",
+			);
+			return;
+		}
+		if (next !== "copilot" && next !== "devin") {
+			await this.sender.send(chatId, 'CLI must be "copilot" or "devin".');
+			return;
+		}
+		if (!this.availableAgents[next]) {
+			await this.sender.send(
+				chatId,
+				next === "copilot"
+					? "Copilot credentials are not configured."
+					: "Devin credentials are not configured.",
+			);
+			return;
+		}
+		const model = next === "devin" ? (conversation?.model ?? "swe-1.7") : null;
+		const { previousSandboxId } = await this.db.configureMainConversation({
+			channel: "telegram",
+			userId,
+			chatId,
+			agent: next,
+			repository: conversation?.repository ?? "",
+			model,
+		});
+		await this.scheduler.invalidateMainSandbox(previousSandboxId);
+		await this.sender.send(
+			chatId,
+			`Default CLI set to ${next}${model ? ` (model ${model})` : ""}.`,
+		);
 	}
 
 	private async handleStatus(chatId: string, userId: string): Promise<void> {
@@ -289,12 +413,60 @@ export class TelegramChannel implements ChannelLike {
 		await this.sender.send(
 			chatId,
 			[
+				`Agent: ${status.conversation.agent}`,
+				`Model: ${status.conversation.model ?? "provider default"}`,
+				`Repository: ${status.conversation.repository || "(from message content)"}`,
 				`Main sandbox: ${status.conversation.sandboxId ?? "inactive (created on next turn)"}`,
 				`Main turns: ${status.runningMain} running, ${status.pendingMain} queued`,
 				`Workers: ${status.runningWorkers} running, ${status.pendingWorkers} queued`,
 				`Last activity: ${status.conversation.lastActivityAt.toISOString()}`,
 			].join("\n"),
 		);
+	}
+
+	private async handleModel(chatId: string, userId: string, args: string): Promise<void> {
+		const conversation = await this.db.getMainConversation("telegram", userId, chatId);
+		if (!conversation) {
+			await this.sender.send(
+				chatId,
+				"No main session yet. Use /new owner/repository [agent] first.",
+			);
+			return;
+		}
+		const nextModel = args.trim();
+		if (!nextModel) {
+			await this.sender.send(chatId, `Active model: ${conversation.model ?? "provider default"}`);
+			return;
+		}
+		if (!MODEL_PATTERN.test(nextModel)) {
+			await this.sender.send(chatId, "Model is invalid. Use letters, numbers, '.', '_' or '-'.");
+			return;
+		}
+		const { previousSandboxId } = await this.db.configureMainConversation({
+			channel: "telegram",
+			userId,
+			chatId,
+			agent: conversation.agent,
+			repository: conversation.repository,
+			model: nextModel,
+		});
+		await this.scheduler.invalidateMainSandbox(previousSandboxId);
+		await this.sender.send(chatId, `Model set to ${nextModel}.`);
+	}
+
+	private resolveAgentChoice(
+		agentArg: string | undefined,
+		current: AgentName | null,
+	): AgentName | null {
+		if (agentArg === "copilot" || agentArg === "devin") return agentArg;
+		if (current && this.availableAgents[current]) return current;
+		return this.autoAgent();
+	}
+
+	private autoAgent(): AgentName | null {
+		if (this.availableAgents.copilot && !this.availableAgents.devin) return "copilot";
+		if (!this.availableAgents.copilot && this.availableAgents.devin) return "devin";
+		return null;
 	}
 
 	private async handleInstructions(

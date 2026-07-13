@@ -29,21 +29,27 @@ You (Telegram/Discord/WhatsApp)
 ```
 
 - Send a plain message containing a repository and task. Glasses automatically
-  creates or resumes one main Copilot session for that Telegram user/chat.
+  creates or resumes one main session for that Telegram user/chat.
+- If only one CLI credential is configured, Glasses auto-selects it as the
+  default (`copilot` or `devin`). If both are configured and no default is set,
+  Glasses asks once and remembers the user's choice.
+- `/cli [copilot|devin]` shows or updates the default CLI for future turns.
 - The main session can call native `delegate_task(owner/repo, task)`. Every task
   gets a fresh worker sandbox; different repositories can run concurrently and
   work for the same repository is serialized.
-- `/status` shows the main sandbox and queued/running main turns and workers.
+- `/new owner/repo [copilot|devin] [model]` pins the main session repository and
+  agent for upcoming turns.
+- `/model [name]` shows or updates the active model (Devin defaults to `swe-1.7`).
+- `/status` shows agent/model/repository plus queued/running main turns and workers.
 - `/instructions`, `/instructions set <text>`, and `/instructions clear` manage
   DB-backed global instructions used by main and worker sessions.
-- `/new` is compatibility-only; it tells users to send the task naturally.
 
 ## 📊 Status
 
 - ✅ Telegram channel
 - ✅ Copilot SDK main/worker sandbox orchestration
 - ✅ Durable Postgres job claims and bounded session rehydration
-- ⏸️ Devin support is deferred and is not available
+- ✅ Devin CLI main-session support (`devin -p` with optional `--continue`)
 - 🚧 Discord, WhatsApp channels (planned)
 
 ## 🚀 Getting started
@@ -93,6 +99,7 @@ See [`.env.example`](./.env.example) for the full list:
 | `PORT` | HTTP port (default `3000`) |
 | `LOG_LEVEL` | `debug` \| `info` \| `warn` \| `error` |
 | `COPILOT_GITHUB_TOKEN` | GitHub token for Copilot auth and worker Git delivery |
+| `DEVIN_CREDENTIALS_BASE64` | Base64 of `credentials.toml` for Devin CLI auth in sandboxes |
 | `MEMORY_MESSAGE_LIMIT` | Recent main-chat messages restored after sandbox loss |
 | `MEMORY_WORKER_LIMIT` | Recent worker summaries restored after sandbox loss |
 

@@ -40,7 +40,10 @@ async function main(): Promise<void> {
 	const sandbox = new SandboxManager(config.railwayApiToken, config.railwayEnvironmentId);
 	const messenger = new TelegramMessenger(config.telegramBotToken);
 	const scheduler = new Scheduler(db, sandbox, messenger, config);
-	const telegram = new TelegramChannel(config.telegramAllowedUserId, db, scheduler, messenger);
+	const telegram = new TelegramChannel(config.telegramAllowedUserId, db, scheduler, messenger, {
+		copilot: Boolean(config.copilotGithubToken),
+		devin: Boolean(config.devinCredentialsBase64),
+	});
 	await scheduler.start();
 
 	const server = createServer(async (req, res) => {

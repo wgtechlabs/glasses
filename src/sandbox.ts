@@ -32,7 +32,7 @@ export class SandboxManager {
 		this.runnerPath = runnerPath ?? fileURLToPath(new URL("../dist/runner.js", import.meta.url));
 	}
 
-	async createMain(authToken: string): Promise<string> {
+	async createMain(authToken?: string): Promise<string> {
 		return this.create(authToken, 25);
 	}
 
@@ -45,7 +45,7 @@ export class SandboxManager {
 	}
 
 	private async create(
-		authToken: string,
+		authToken: string | undefined,
 		idleTimeoutMinutes: number,
 		checkpointName?: string,
 	): Promise<string> {
@@ -55,8 +55,15 @@ export class SandboxManager {
 			idleTimeoutMinutes,
 			networkIsolation: "ISOLATED" as const,
 			env: {
-				COPILOT_GITHUB_TOKEN: authToken,
-				GH_TOKEN: authToken,
+				...(authToken
+					? {
+							COPILOT_GITHUB_TOKEN: authToken,
+							GH_TOKEN: authToken,
+						}
+					: {}),
+				...(process.env.DEVIN_CREDENTIALS_BASE64
+					? { DEVIN_CREDENTIALS_BASE64: process.env.DEVIN_CREDENTIALS_BASE64 }
+					: {}),
 				COPILOT_AUTO_UPDATE: "false",
 				COPILOT_CLI_PATH: "/glasses/copilot-cli",
 			},

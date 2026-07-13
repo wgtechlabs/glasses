@@ -28,8 +28,20 @@ describe("loadConfig", () => {
 		expect(config.schedulerWorkerConcurrency).toBe(2);
 	});
 
-	it("requires sandbox Copilot authentication", () => {
+	it("accepts Devin-only authentication", () => {
 		const { COPILOT_GITHUB_TOKEN, ...incomplete } = validEnv;
-		expect(() => loadConfig(incomplete as NodeJS.ProcessEnv)).toThrow(/copilotGithubToken/);
+		const config = loadConfig({
+			...incomplete,
+			DEVIN_CREDENTIALS_BASE64: "ZGV2aW4tY3JlZHM=", // gitleaks:allow (fake base64 test fixture, not a real secret)
+		} as NodeJS.ProcessEnv);
+		expect(config.copilotGithubToken).toBeNull();
+		expect(config.devinCredentialsBase64).toBe("ZGV2aW4tY3JlZHM=");
+	});
+
+	it("requires at least one CLI credential", () => {
+		const { COPILOT_GITHUB_TOKEN, ...incomplete } = validEnv;
+		expect(() => loadConfig(incomplete as NodeJS.ProcessEnv)).toThrow(
+			/Either COPILOT_GITHUB_TOKEN/,
+		);
 	});
 });

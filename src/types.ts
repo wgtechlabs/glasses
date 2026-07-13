@@ -1,4 +1,5 @@
 export type ChannelName = "telegram" | "discord" | "whatsapp";
+export type AgentName = "copilot" | "devin";
 export type MessageRole = "user" | "assistant" | "system";
 export type JobKind = "main_turn" | "worker" | "worker_result";
 export type JobStatus = "pending" | "running" | "done" | "failed";
@@ -19,6 +20,9 @@ export interface Conversation {
 	channel: ChannelName;
 	userId: string;
 	chatId: string;
+	agent: AgentName;
+	repository: string;
+	model: string | null;
 	sandboxId: string | null;
 	copilotSessionId: string | null;
 	lastActivityAt: Date;
@@ -58,7 +62,8 @@ export interface Config {
 	databaseUrl: string;
 	telegramBotToken: string;
 	telegramAllowedUserId: string;
-	copilotGithubToken: string;
+	copilotGithubToken: string | null;
+	devinCredentialsBase64: string | null;
 	memoryMessageLimit: number;
 	memoryWorkerLimit: number;
 	schedulerPollMs: number;
