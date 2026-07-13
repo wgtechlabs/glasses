@@ -2,9 +2,9 @@ name: Build Flow
 
 on:
   pull_request:
-    branches: [dev, main]
+    branches: ['**']
   push:
-    branches: [dev, main]
+    branches: ['**']
   release:
     types: [published]
   workflow_dispatch:
