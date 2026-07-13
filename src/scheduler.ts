@@ -81,7 +81,9 @@ export class Scheduler {
 				sessionId: conversation.copilotSessionId,
 			};
 		}
-		const sandboxId = await this.sandbox.createMain(this.config.copilotGithubToken);
+		const sandboxId = await this.sandbox.createMain(
+			conversation.agent === "copilot" ? this.config.copilotGithubToken : undefined,
+		);
 		await this.db.updateConversationRuntime(conversation.id, sandboxId, null);
 		return { sandboxId, recreated: true, sessionId: null };
 	}
@@ -230,7 +232,9 @@ export class Scheduler {
 				const input: RunnerInput = {
 					version: 1,
 					mode: "worker",
+					agent: "copilot",
 					prompt: job.prompt,
+					model: null,
 					globalInstructions:
 						(await this.db.getInstructions(conversation.channel, conversation.userId)) ?? "",
 					sessionId: null,
@@ -329,7 +333,10 @@ export class Scheduler {
 		return {
 			version: 1,
 			mode: "main",
+			agent: conversation.agent,
 			prompt: job.prompt,
+			model: conversation.model,
+			repository: conversation.repository,
 			globalInstructions:
 				(await this.db.getInstructions(conversation.channel, conversation.userId)) ?? "",
 			sessionId,

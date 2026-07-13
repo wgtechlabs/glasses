@@ -27,6 +27,13 @@ function setup(overrides: Record<string, unknown> = {}) {
 			job: { id: "job-1" },
 		})),
 		getStatus: mock(async () => ({ conversation: null })),
+		getMainConversation: mock(async () => null),
+		configureMainConversation: mock(async () => ({
+			id: "conv-1",
+			agent: "copilot",
+			repository: "wgtechlabs/glasses",
+			model: null,
+		})),
 		getInstructions: mock(async () => null),
 		changeInstructions: mock(async () => ["sbx-old"]),
 		...overrides,
@@ -52,11 +59,50 @@ describe("Telegram control chat", () => {
 		expect(sent).toEqual([]);
 	});
 
-	it("keeps /new as a compatibility message", async () => {
+	it("configures /new session settings", async () => {
 		const { channel, db, sent } = setup();
-		await channel.handleWebhook(payload("/new owner/repo"));
-		expect(db.enqueueTelegramTurn).not.toHaveBeenCalled();
-		expect(sent[0]).toContain("No /new");
+		await channel.handleWebhook(payload("/new owner/repo devin"));
+		expect(db.configureMainConversation).toHaveBeenCalledWith({
+			channel: "telegram",
+			userId: "123",
+			chatId: "456",
+			agent: "devin",
+			repository: "owner/repo",
+			model: "swe-1.7",
+		});
+		expect(sent[0]).toContain("Session configured");
+	});
+
+	it("shows and updates /model", async () => {
+		const { channel, db, sent } = setup({
+			getMainConversation: mock(async () => ({
+				id: "conv-1",
+				channel: "telegram",
+				userId: "123",
+				chatId: "456",
+				agent: "devin",
+				repository: "owner/repo",
+				model: "swe-1.7",
+				sandboxId: null,
+				copilotSessionId: null,
+				lastActivityAt: new Date(),
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			})),
+		});
+
+		await channel.handleWebhook(payload("/model", 2));
+		await channel.handleWebhook(payload("/model swe-1.8", 3));
+
+		expect(sent[0]).toContain("swe-1.7");
+		expect(db.configureMainConversation).toHaveBeenCalledWith({
+			channel: "telegram",
+			userId: "123",
+			chatId: "456",
+			agent: "devin",
+			repository: "owner/repo",
+			model: "swe-1.8",
+		});
 	});
 
 	it("shows, sets, and clears global instructions", async () => {

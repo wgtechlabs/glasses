@@ -14,12 +14,14 @@ Telegram -> gateway -> Postgres jobs -> Railway main sandbox
                                   Railway worker sandbox
 ```
 
-Both sandbox types receive `dist/runner.js`, a JSON input file, and the packaged
-Linux Copilot CLI through `sandbox.files.write`. Worker clones use the sandbox's
-Git binary with authentication passed through process environment configuration.
-Prompts and tasks are never interpolated into shell commands. The runner uses
-`@github/copilot-sdk` without a `model` option, preserving the authenticated
-CLI's default provider/model.
+Both sandbox types receive `dist/runner.js` and an input JSON file. Copilot
+sessions additionally receive the packaged Linux Copilot CLI through
+`sandbox.files.write`. Worker clones use the sandbox's Git binary with
+authentication passed through process environment configuration.
+Prompts and tasks are never interpolated into shell commands. Copilot uses
+`@github/copilot-sdk` in orchestration mode; Devin main sessions use `devin -p`
+inside the main sandbox with conversation-level model selection (default
+`swe-1.7`).
 
 ## Main sessions
 
@@ -93,6 +95,5 @@ it is not logged or included in prompts. Git clone and push receive it through
 ephemeral process environment configuration, so it is not stored in repository
 configuration or Railway checkpoints.
 
-Devin is deliberately deferred and is not registered as a working backend.
 Railway Sandboxes and the Copilot SDK are preview/beta dependencies and may
 introduce breaking API changes.

@@ -1,6 +1,7 @@
 import { createHash, randomInt, timingSafeEqual } from "node:crypto";
 import type { Database } from "../db";
 import { logger } from "../logger";
+import { isValidRepository } from "../repository";
 import type { ChatNotifier, Scheduler } from "../scheduler";
 import type { ChannelLike } from "./types";
 
@@ -88,6 +89,8 @@ export interface TelegramSender {
 	send(chatId: string, text: string): Promise<void>;
 }
 
+const MODEL_PATTERN = /^[A-Za-z0-9._-]+$/;
+
 export class TelegramMessenger implements TelegramSender, ChatNotifier {
 	private readonly webhookSecret: string;
 
@@ -119,6 +122,8 @@ export class TelegramMessenger implements TelegramSender, ChatNotifier {
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					commands: [
+						{ command: "new", description: "Set repository and agent" },
+						{ command: "model", description: "Show or set the active model" },
 						{ command: "status", description: "Show main session and queued work" },
 						{ command: "instructions", description: "Show or update global instructions" },
 					],
@@ -252,10 +257,11 @@ export class TelegramChannel implements ChannelLike {
 		const rawCommand = text.split(/\s+/, 1)[0] ?? "";
 		const command = rawCommand.split("@", 1)[0]?.toLowerCase();
 		if (command === "/new") {
-			await this.sender.send(
-				chatId,
-				"No /new command is needed. Send the repository and task naturally (for example: “Fix owner/repo issue #42”).",
-			);
+			await this.handleNew(chatId, userId, text.slice(rawCommand.length).trim());
+			return;
+		}
+		if (command === "/model") {
+			await this.handleModel(chatId, userId, text.slice(rawCommand.length).trim());
 			return;
 		}
 		if (command === "/status") {
@@ -277,6 +283,36 @@ export class TelegramChannel implements ChannelLike {
 		this.scheduler.kick();
 	}
 
+	private async handleNew(chatId: string, userId: string, args: string): Promise<void> {
+		const [repositoryArg, agentArg, modelArg] = args.split(/\s+/).filter(Boolean);
+		if (!repositoryArg || !isValidRepository(repositoryArg)) {
+			await this.sender.send(chatId, "Usage: /new owner/repository [copilot|devin] [model]");
+			return;
+		}
+		const agent = agentArg === "devin" ? "devin" : "copilot";
+		if (agentArg && agentArg !== "copilot" && agentArg !== "devin") {
+			await this.sender.send(chatId, 'Agent must be "copilot" or "devin".');
+			return;
+		}
+		if (modelArg && !MODEL_PATTERN.test(modelArg)) {
+			await this.sender.send(chatId, "Model is invalid. Use letters, numbers, '.', '_' or '-'.");
+			return;
+		}
+		const model = modelArg ?? (agent === "devin" ? "swe-1.7" : null);
+		await this.db.configureMainConversation({
+			channel: "telegram",
+			userId,
+			chatId,
+			agent,
+			repository: repositoryArg,
+			model,
+		});
+		await this.sender.send(
+			chatId,
+			`Session configured: ${agent} on ${repositoryArg}${model ? ` (model ${model})` : ""}.`,
+		);
+	}
+
 	private async handleStatus(chatId: string, userId: string): Promise<void> {
 		const status = await this.db.getStatus("telegram", userId, chatId);
 		if (!status.conversation) {
@@ -289,12 +325,44 @@ export class TelegramChannel implements ChannelLike {
 		await this.sender.send(
 			chatId,
 			[
+				`Agent: ${status.conversation.agent}`,
+				`Model: ${status.conversation.model ?? "provider default"}`,
+				`Repository: ${status.conversation.repository || "(from message content)"}`,
 				`Main sandbox: ${status.conversation.sandboxId ?? "inactive (created on next turn)"}`,
 				`Main turns: ${status.runningMain} running, ${status.pendingMain} queued`,
 				`Workers: ${status.runningWorkers} running, ${status.pendingWorkers} queued`,
 				`Last activity: ${status.conversation.lastActivityAt.toISOString()}`,
 			].join("\n"),
 		);
+	}
+
+	private async handleModel(chatId: string, userId: string, args: string): Promise<void> {
+		const conversation = await this.db.getMainConversation("telegram", userId, chatId);
+		if (!conversation) {
+			await this.sender.send(
+				chatId,
+				"No main session yet. Use /new owner/repository [agent] first.",
+			);
+			return;
+		}
+		const nextModel = args.trim();
+		if (!nextModel) {
+			await this.sender.send(chatId, `Active model: ${conversation.model ?? "provider default"}`);
+			return;
+		}
+		if (!MODEL_PATTERN.test(nextModel)) {
+			await this.sender.send(chatId, "Model is invalid. Use letters, numbers, '.', '_' or '-'.");
+			return;
+		}
+		await this.db.configureMainConversation({
+			channel: "telegram",
+			userId,
+			chatId,
+			agent: conversation.agent,
+			repository: conversation.repository,
+			model: nextModel,
+		});
+		await this.sender.send(chatId, `Model set to ${nextModel}.`);
 	}
 
 	private async handleInstructions(

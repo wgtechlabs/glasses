@@ -14,7 +14,9 @@ export interface WorkerSummary {
 export interface RunnerInput {
 	version: 1;
 	mode: "main" | "worker";
+	agent: "copilot" | "devin";
 	prompt: string;
+	model: string | null;
 	globalInstructions: string;
 	sessionId: string | null;
 	rehydrate: boolean;

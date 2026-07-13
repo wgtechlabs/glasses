@@ -28,6 +28,7 @@ export class Database {
 			ALTER TABLE conversations ADD COLUMN IF NOT EXISTS chat_id TEXT;
 			ALTER TABLE conversations ADD COLUMN IF NOT EXISTS conversation_kind TEXT NOT NULL DEFAULT 'main';
 			ALTER TABLE conversations ADD COLUMN IF NOT EXISTS copilot_session_id TEXT;
+			ALTER TABLE conversations ADD COLUMN IF NOT EXISTS model TEXT;
 			ALTER TABLE conversations ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
 			CREATE TABLE IF NOT EXISTS messages (
@@ -107,7 +108,7 @@ export class Database {
 			await client.query(
 				`UPDATE conversations SET
 					chat_id = $2, conversation_kind = 'main', agent = 'copilot', repository = '',
-					sandbox_id = NULL, session_id = NULL, copilot_session_id = NULL,
+					model = NULL, sandbox_id = NULL, session_id = NULL, copilot_session_id = NULL,
 					last_activity_at = $3, updated_at = $3
 				WHERE id = (
 					SELECT id FROM conversations
@@ -126,8 +127,8 @@ export class Database {
 			const { rows: conversations } = await client.query(
 				`INSERT INTO conversations (
 					id, channel, user_id, chat_id, conversation_kind, agent, repository,
-					sandbox_id, session_id, copilot_session_id, last_activity_at, created_at, updated_at
-				) VALUES ($1, 'telegram', $2, $3, 'main', 'copilot', '', NULL, NULL, NULL, $4, $4, $4)
+					model, sandbox_id, session_id, copilot_session_id, last_activity_at, created_at, updated_at
+				) VALUES ($1, 'telegram', $2, $3, 'main', 'copilot', '', NULL, NULL, NULL, NULL, $4, $4, $4)
 				ON CONFLICT (channel, user_id, chat_id)
 					WHERE conversation_kind = 'main' AND chat_id IS NOT NULL
 				DO UPDATE SET last_activity_at = EXCLUDED.last_activity_at, updated_at = EXCLUDED.updated_at
@@ -183,6 +184,47 @@ export class Database {
 			[channel, userId, chatId],
 		);
 		return rows[0] ? rowToConversation(rows[0]) : null;
+	}
+
+	async configureMainConversation(input: {
+		channel: string;
+		userId: string;
+		chatId: string;
+		agent: "copilot" | "devin";
+		repository: string;
+		model: string | null;
+	}): Promise<Conversation> {
+		const now = new Date();
+		const conversationId = id("conv");
+		const { rows } = await this.pool.query(
+			`INSERT INTO conversations (
+				id, channel, user_id, chat_id, conversation_kind, agent, repository, model,
+				sandbox_id, session_id, copilot_session_id, last_activity_at, created_at, updated_at
+			) VALUES ($1, $2, $3, $4, 'main', $5, $6, $7, NULL, NULL, NULL, $8, $8, $8)
+			ON CONFLICT (channel, user_id, chat_id)
+				WHERE conversation_kind = 'main' AND chat_id IS NOT NULL
+			DO UPDATE SET
+				agent = EXCLUDED.agent,
+				repository = EXCLUDED.repository,
+				model = EXCLUDED.model,
+				sandbox_id = NULL,
+				session_id = NULL,
+				copilot_session_id = NULL,
+				last_activity_at = EXCLUDED.last_activity_at,
+				updated_at = EXCLUDED.updated_at
+			RETURNING *`,
+			[
+				conversationId,
+				input.channel,
+				input.userId,
+				input.chatId,
+				input.agent,
+				input.repository,
+				input.model,
+				now,
+			],
+		);
+		return rowToConversation(rows[0]);
 	}
 
 	async updateConversationRuntime(
@@ -576,6 +618,9 @@ function rowToConversation(row: Record<string, unknown>): Conversation {
 		channel: row.channel as Conversation["channel"],
 		userId: row.user_id as string,
 		chatId: (row.chat_id as string) ?? (row.user_id as string),
+		agent: ((row.agent as string) ?? "copilot") as Conversation["agent"],
+		repository: (row.repository as string) ?? "",
+		model: (row.model as string) ?? null,
 		sandboxId: (row.sandbox_id as string) ?? null,
 		copilotSessionId: (row.copilot_session_id as string) ?? (row.session_id as string) ?? null,
 		lastActivityAt: row.last_activity_at as Date,
